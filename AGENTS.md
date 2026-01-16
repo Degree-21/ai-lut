@@ -1,10 +1,11 @@
 # Repository Guidelines
 
 ## 项目结构与模块组织
-仓库目前为单文件脚本结构，核心代码在根目录 `main.py`。暂无独立的 `src/`、`tests/` 或资源目录；`.idea/` 为本地 IDE 配置，不参与运行与发布。
+核心后端入口为 `main.py`（Flask），前端模板在 `templates/`，静态资源在 `static/`。配置读取在 `config.py`，示例配置为 `config.example.yaml`，实际密钥请放在本地 `config.yaml`（已忽略）。生成结果默认写入 `outputs/`。
 
 ## 构建、测试与开发命令
-- `python main.py`：本地运行脚本入口。
+- `python main.py`：启动本地 Web 服务（默认 `127.0.0.1:7860`）。
+- `CLI_MODE=1 python main.py`：仅运行命令行流程（输出分析与文件到 `outputs/`）。
 - 当前未配置构建流程或打包命令；如需发布，可补充 `pyproject.toml` 或 `setup.cfg`。
 - 目前无测试命令；如引入测试，建议使用 `pytest`。
 

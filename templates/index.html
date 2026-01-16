@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>调色灵感专家</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="container header">
+        <div class="title">
+          <h1>调色灵感专家</h1>
+          <span class="badge">Gemini 2.5 Flash</span>
+        </div>
+        <p class="subtitle">深度分析场景光影，生成电影级调色参考与 3D LUT</p>
+      </header>
+
+      <main class="container main">
+        <section id="error-panel" class="alert hidden">
+          <div class="alert-icon">!</div>
+          <div>
+            <h4>API 调用错误</h4>
+            <p id="error-message"></p>
+          </div>
+        </section>
+
+        <div class="grid">
+          <div class="column">
+            <section class="card">
+              <div class="card-title">
+                <span class="icon">🖼️</span>
+                <h2>上传静帧</h2>
+              </div>
+              <div id="upload-area" class="upload-area">
+                <input id="file-input" type="file" accept="image/*" />
+                <div class="upload-placeholder">
+                  <div class="upload-icon">⬆️</div>
+                  <p>点击或拖拽图片</p>
+                  <span>支持 Rec.709 标准空间</span>
+                </div>
+                <img id="preview-image" class="hidden" alt="预览图" />
+                <button id="reset-button" class="ghost-button hidden" type="button">重新上传</button>
+              </div>
+
+              <div class="field">
+                <label>API Key</label>
+                <div class="api-input">
+                  <input id="api-key-input" type="password" placeholder="请输入 Google API Key" />
+                  <button id="toggle-key" class="icon-button" type="button">👁️</button>
+                </div>
+              </div>
+
+              <div class="field-row">
+                <label class="checkbox">
+                  <input id="lut-toggle" type="checkbox" checked />
+                  生成 3D LUT
+                </label>
+                <label class="checkbox">
+                  <input id="debug-toggle" type="checkbox" />
+                  打印请求日志
+                </label>
+              </div>
+
+              <button id="generate-button" class="primary-button" type="button">
+                <span class="button-icon">⚡</span> 分析并生成调色方案
+              </button>
+
+              <div id="status-panel" class="status hidden">
+                <div class="spinner"></div>
+                <p id="status-text">正在生成中...</p>
+              </div>
+            </section>
+
+            <section id="analysis-card" class="card hidden">
+              <div class="card-title">
+                <span class="icon">ℹ️</span>
+                <h3>AI 场景分析</h3>
+              </div>
+              <div id="analysis-text" class="analysis"></div>
+            </section>
+          </div>
+
+          <div class="column wide">
+            <div class="section-title">
+              <div class="title-left">
+                <span class="icon">🎨</span>
+                <h2>风格参考库 (Rec.709 / G2.4)</h2>
+              </div>
+              <button id="regenerate-button" class="link-button hidden" type="button">⟳ 重新创作</button>
+            </div>
+
+            <div id="results" class="results empty-state">
+              <div class="empty-card">
+                <div class="empty-icon">🎬</div>
+                <h3>准备就绪</h3>
+                <p>上传静帧后，AI 将基于场景分析生成 6 种调色参考。</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <footer class="container footer">
+        <p>核心算法: OKLAB 感知均匀匹配 | 直方图分布映射 | 65阶精度</p>
+        <div class="footer-right">
+          <span>Model: Gemini 2.5 Flash</span>
+          <span>Target: Rec.709 G2.4</span>
+        </div>
+      </footer>
+    </div>
+
+    <script>
+      window.APP_CONFIG = {
+        apiKey: "{{ api_key|e }}"
+      };
+    </script>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>

@@ -16,6 +16,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "sample_size": 128,
     "lut_size": 65,
     "retries": 5,
+    "debug_requests": False,
 }
 
 

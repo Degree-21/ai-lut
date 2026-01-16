@@ -6,6 +6,7 @@ import json
 import os
 import sys
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -13,15 +14,14 @@ from typing import Dict, List, Tuple
 import numpy as np
 import requests
 from PIL import Image
+from flask import Flask, jsonify, render_template, request, send_from_directory
 
 from config import load_settings
 
-# 建议将分析模型改为稳定版
 ANALYSIS_MODEL = "gemini-2.5-flash"
-# 修改后
-IMAGE_MODEL = "gemini-2.5-flash-image"
+IMAGE_MODEL = "gemini-2.5-flash"
 
-DEBUG_REQUESTS_STATE = True
+DEBUG_REQUESTS_STATE = False
 
 
 @dataclass(frozen=True)
@@ -87,6 +87,7 @@ class AppConfig:
     sample_size: int
     lut_size: int
     retries: int
+    debug_requests: bool
 
 
 def env_flag(name: str, default: str = "0") -> bool:
@@ -111,6 +112,7 @@ def load_config() -> AppConfig:
         sample_size=sample_size,
         lut_size=lut_size,
         retries=retries,
+        debug_requests=bool(settings.get("debug_requests", False)),
     )
 
 
@@ -128,6 +130,14 @@ def require_dependencies() -> None:
         import numpy  # noqa: F401
     except Exception:
         missing.append("numpy")
+    try:
+        import yaml  # noqa: F401
+    except Exception:
+        missing.append("PyYAML")
+    try:
+        import flask  # noqa: F401
+    except Exception:
+        missing.append("Flask")
     if missing:
         joined = ", ".join(missing)
         raise RuntimeError(f"缺少依赖: {joined}。请先安装后再运行。")
@@ -207,6 +217,13 @@ def scrub_payload(value):
     if isinstance(value, list):
         return [scrub_payload(item) for item in value]
     return value
+
+
+def resolve_style_ids(styles_value: str) -> List[str]:
+    if not styles_value or styles_value.strip().lower() == "all":
+        return [style.id for style in STYLE_PRESETS]
+    wanted = {item.strip() for item in styles_value.split(",") if item.strip()}
+    return [style.id for style in STYLE_PRESETS if style.id in wanted]
 
 
 def analyze_scene(image_b64: str, mime_type: str, api_key: str, retries: int) -> str:
@@ -379,48 +396,64 @@ def run_pipeline(
     image_b64: str,
     source_image: Image.Image,
     mime_type: str,
-    style_names: List[str],
-) -> Tuple[str, Dict[str, Image.Image], Dict[str, Path]]:
-    out_dir = config.out_dir
-    out_dir.mkdir(parents=True, exist_ok=True)
+    style_ids: List[str],
+    debug_requests: bool = False,
+) -> Tuple[str, List[Dict[str, object]]]:
+    global DEBUG_REQUESTS_STATE
+    previous_debug = DEBUG_REQUESTS_STATE
+    DEBUG_REQUESTS_STATE = debug_requests or config.debug_requests
+    try:
+        out_dir = config.out_dir
+        out_dir.mkdir(parents=True, exist_ok=True)
 
-    selected_styles = [style for style in STYLE_PRESETS if style.name in style_names]
-    if not selected_styles:
-        raise RuntimeError("未选择任何风格。")
+        selected_styles = [style for style in STYLE_PRESETS if style.id in style_ids]
+        if not selected_styles:
+            raise RuntimeError("未选择任何风格。")
 
-    scene_description = analyze_scene(image_b64, mime_type, config.api_key, config.retries)
-    analysis_path = out_dir / "analysis.txt"
-    analysis_path.write_text(scene_description, encoding="utf-8")
+        scene_description = analyze_scene(image_b64, mime_type, config.api_key, config.retries)
+        analysis_path = out_dir / "analysis.txt"
+        analysis_path.write_text(scene_description, encoding="utf-8")
 
-    images: Dict[str, Image.Image] = {}
-    lut_files: Dict[str, Path] = {}
-    for style in selected_styles:
-        image_bytes = generate_style_image(
-            scene_description,
-            style,
-            image_b64,
-            mime_type,
-            config.api_key,
-            config.retries,
-        )
-        image_out = out_dir / f"ref_{style.id}.png"
-        image_out.write_bytes(image_bytes)
-        images[style.name] = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-
-        if not config.no_lut:
-            target_image = Image.open(image_out).convert("RGB")
-            lut_out = out_dir / f"AI_Grade_{style.id}_{config.lut_size}.cube"
-            generate_lut(
-                source_image,
-                target_image,
-                style.id,
-                lut_out,
-                sample_size=config.sample_size,
-                lut_size=config.lut_size,
+        results: List[Dict[str, object]] = []
+        for style in selected_styles:
+            image_bytes = generate_style_image(
+                scene_description,
+                style,
+                image_b64,
+                mime_type,
+                config.api_key,
+                config.retries,
             )
-            lut_files[style.name] = lut_out
+            image_out = out_dir / f"ref_{style.id}.png"
+            image_out.write_bytes(image_bytes)
 
-    return scene_description, images, lut_files
+            lut_filename = None
+            if not config.no_lut:
+                target_image = Image.open(image_out).convert("RGB")
+                lut_out = out_dir / f"AI_Grade_{style.id}_{config.lut_size}.cube"
+                generate_lut(
+                    source_image,
+                    target_image,
+                    style.id,
+                    lut_out,
+                    sample_size=config.sample_size,
+                    lut_size=config.lut_size,
+                )
+                lut_filename = lut_out.name
+
+            results.append(
+                {
+                    "id": style.id,
+                    "name": style.name,
+                    "description": style.description,
+                    "image_bytes": image_bytes,
+                    "lut_filename": lut_filename,
+                }
+            )
+
+        return scene_description, results
+    finally:
+        DEBUG_REQUESTS_STATE = previous_debug
 
 
 def run_cli() -> None:
@@ -436,178 +469,117 @@ def run_cli() -> None:
         raise FileNotFoundError(f"找不到输入图片: {config.image_path}，请设置 IMAGE_PATH。")
 
     image_b64, source_image, mime_type = load_image_base64(config.image_path)
-    style_names = [style.name for style in STYLE_PRESETS]
-    scene_description, _, _ = run_pipeline(config, image_b64, source_image, mime_type, style_names)
+    style_ids = resolve_style_ids(config.styles)
+    scene_description, _ = run_pipeline(
+        config, image_b64, source_image, mime_type, style_ids, debug_requests=config.debug_requests
+    )
     print(f"场景分析已保存: {config.out_dir / 'analysis.txt'}")
     print(scene_description)
 
 
-def run_web() -> None:
-    try:
-        import gradio as gr
-    except ModuleNotFoundError as exc:
-        raise RuntimeError("缺少依赖: gradio。请先安装 requirements.txt 后再启动。") from exc
-    except Exception as exc:
-        raise RuntimeError(f"gradio 导入失败: {exc}") from exc
+def create_app() -> Flask:
+    app = Flask(__name__, static_folder="static", template_folder="templates")
 
-    try:
-        from gradio_client import utils as gr_client_utils
-    except Exception:
-        gr_client_utils = None
+    @app.route("/")
+    def index():
+        settings = load_settings()
+        return render_template("index.html", api_key=str(settings.get("api_key", "")))
 
-    if gr_client_utils is not None:
-        original_schema_to_type = gr_client_utils._json_schema_to_python_type
-        original_get_type = gr_client_utils.get_type
-
-        def _patched_json_schema_to_python_type(schema, defs=None):
-            if isinstance(schema, bool):
-                return "Any"
-            return original_schema_to_type(schema, defs)
-
-        def _patched_get_type(schema):
-            if isinstance(schema, bool):
-                return "any"
-            return original_get_type(schema)
-
-        gr_client_utils._json_schema_to_python_type = _patched_json_schema_to_python_type
-        gr_client_utils.get_type = _patched_get_type
-
-    require_dependencies()
-    style_names = [style.name for style in STYLE_PRESETS]
-    style_name_set = set(style_names)
-    show_key_state = gr.State(False)
-
-    def handle_generate(
-        image: Image.Image | None,
-        api_key: str,
-        out_dir: str,
-        selected_styles: List[str],
-        generate_lut_flag: bool,
-        debug_requests: bool,
-    ):
-        if image is None:
-            return ("", "请先上传静帧。") + (None,) * (len(style_names) * 2)
+    @app.route("/api/generate", methods=["POST"])
+    def api_generate():
+        require_dependencies()
+        settings = load_settings()
+        api_key = request.form.get("api_key", "").strip() or str(settings.get("api_key", ""))
         if not api_key:
-            return ("", "未提供 API Key，请在输入框填写后再分析。") + (None,) * (len(style_names) * 2)
+            return jsonify({"error": "未提供 API Key，请先填写。"}), 400
 
-        global DEBUG_REQUESTS_STATE
-        DEBUG_REQUESTS_STATE = bool(debug_requests)
-        config = load_config()
+        image_file = request.files.get("image")
+        if image_file is None:
+            return jsonify({"error": "请先上传静帧。"}), 400
+
+        image_bytes = image_file.read()
+        if not image_bytes:
+            return jsonify({"error": "上传的图片为空。"}), 400
+
+        generate_lut_flag = request.form.get("generate_lut", "1").lower() in {"1", "true", "yes", "on"}
+        debug_requests = request.form.get("debug_requests", "0").lower() in {"1", "true", "yes", "on"}
+        style_ids = request.form.getlist("styles")
+        if not style_ids:
+            style_ids = [style.id for style in STYLE_PRESETS]
+
+        run_id = f"{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
+        base_out_dir = Path(settings.get("out_dir", "outputs"))
+        out_dir = base_out_dir / run_id
+
         config = AppConfig(
-            image_path=config.image_path,
-            api_key=api_key.strip(),
-            out_dir=Path(out_dir or "outputs"),
-            styles="all",
+            image_path=Path(settings.get("image_path", "input.png")),
+            api_key=api_key,
+            out_dir=out_dir,
+            styles=",".join(style_ids),
             no_lut=not generate_lut_flag,
-            sample_size=config.sample_size,
-            lut_size=config.lut_size,
-            retries=config.retries,
+            sample_size=int(settings.get("sample_size", 128)),
+            lut_size=int(settings.get("lut_size", 65)),
+            retries=int(settings.get("retries", 5)),
+            debug_requests=bool(settings.get("debug_requests", False)),
         )
 
-        buffer = io.BytesIO()
-        image.save(buffer, format="PNG")
-        image_bytes = buffer.getvalue()
+        mime_type = image_file.mimetype or "image/png"
         image_b64 = base64.b64encode(image_bytes).decode("ascii")
-        mime_type = "image/png"
-        source_image = image.convert("RGB")
-        selected = [name for name in selected_styles if name in style_name_set] or style_names
+        source_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
         try:
-            scene_description, images, luts = run_pipeline(
-                config, image_b64, source_image, mime_type, selected
+            scene_description, results = run_pipeline(
+                config, image_b64, source_image, mime_type, style_ids, debug_requests=debug_requests
             )
         except Exception as exc:
-            return ("", str(exc)) + (None,) * (len(style_names) * 2)
+            return jsonify({"error": str(exc)}), 400
 
-        outputs: List[object] = [scene_description, ""]
-        for name in style_names:
-            outputs.append(images.get(name))
-        for name in style_names:
-            outputs.append(str(luts[name]) if name in luts else None)
-        return tuple(outputs)
+        payload_results = []
+        for item in results:
+            image_bytes = item["image_bytes"]
+            image_base64 = base64.b64encode(image_bytes).decode("ascii")
+            lut_filename = item.get("lut_filename")
+            lut_url = f"/api/download/{out_dir.name}/{lut_filename}" if lut_filename else None
+            payload_results.append(
+                {
+                    "id": item["id"],
+                    "name": item["name"],
+                    "description": item["description"],
+                    "image": f"data:image/png;base64,{image_base64}",
+                    "lut_url": lut_url,
+                }
+            )
 
-    with gr.Blocks(
-        title="调色灵感专家",
-        analytics_enabled=False,
-        css=".tiny-button button{min-width:32px;height:32px;padding:0 6px;font-size:16px;line-height:1;}",
-    ) as demo:
-        gr.Markdown(
-            "# 调色灵感专家 (Color Grading Master)\n"
-            "上传静帧后点击分析，系统将基于 Gemini 分析并生成 6 种调色参考。"
-        )
-        with gr.Row():
-            with gr.Column(scale=1):
-                image_input = gr.Image(label="上传静帧", type="pil")
-                settings = load_settings()
-                with gr.Row():
-                    api_key_input = gr.Textbox(
-                        label="API Key",
-                        type="password",
-                        value=str(settings.get("api_key", "")),
-                        placeholder="请输入 Google API Key",
-                    )
-                    toggle_key_button = gr.Button("👁️", elem_classes=["tiny-button"])
-                debug_requests_input = gr.Checkbox(
-                    label="打印请求日志",
-                    value=env_flag("DEBUG_REQUESTS", "0"),
-                )
-                out_dir_input = gr.Textbox(label="输出目录", value="outputs")
-                styles_input = gr.CheckboxGroup(
-                    choices=style_names,
-                    value=style_names,
-                    label="风格选择",
-                )
-                generate_lut_input = gr.Checkbox(label="生成 3D LUT", value=True)
-                run_button = gr.Button("分析并生成", variant="primary")
-
-            with gr.Column(scale=1):
-                analysis_output = gr.Textbox(label="AI 场景分析", lines=8)
-                error_output = gr.Markdown()
-
-        with gr.Row():
-            image_outputs = []
-            lut_outputs = []
-            for style in STYLE_PRESETS:
-                with gr.Column():
-                    image_outputs.append(gr.Image(label=f"{style.name} 参考图"))
-                    lut_outputs.append(gr.File(label=f"{style.name} LUT"))
-
-        run_button.click(
-            handle_generate,
-            inputs=[
-                image_input,
-                api_key_input,
-                out_dir_input,
-                styles_input,
-                generate_lut_input,
-                debug_requests_input,
-            ],
-            outputs=[analysis_output, error_output] + image_outputs + lut_outputs,
-        )
-        toggle_key_button.click(
-            lambda visible: (
-                not visible,
-                gr.Textbox.update(type="text" if not visible else "password"),
-                gr.Button.update(value="🙈" if not visible else "👁️"),
-            ),
-            inputs=[show_key_state],
-            outputs=[show_key_state, api_key_input, toggle_key_button],
+        return jsonify(
+            {
+                "analysis": scene_description,
+                "results": payload_results,
+                "run_id": out_dir.name,
+            }
         )
 
-    server_name = os.getenv("GRADIO_SERVER_NAME", "127.0.0.1")
-    server_port_env = os.getenv("GRADIO_SERVER_PORT")
-    share = env_flag("GRADIO_SHARE", "0")
-    if server_port_env:
-        demo.launch(server_name=server_name, server_port=int(server_port_env), share=share)
-    else:
-        demo.launch(server_name=server_name, share=share)
+    @app.route("/api/download/<run_id>/<path:filename>")
+    def api_download(run_id: str, filename: str):
+        base_out_dir = Path(load_settings().get("out_dir", "outputs"))
+        safe_dir = (base_out_dir / run_id).resolve()
+        file_path = (safe_dir / filename).resolve()
+        if safe_dir not in file_path.parents:
+            return jsonify({"error": "非法路径。"}), 400
+        if not file_path.exists():
+            return jsonify({"error": "文件不存在。"}), 404
+        return send_from_directory(safe_dir, filename, as_attachment=True)
+
+    return app
 
 
 def main() -> None:
     if env_flag("CLI_MODE", "0"):
         run_cli()
     else:
-        run_web()
+        app = create_app()
+        host = os.getenv("HOST", "127.0.0.1")
+        port = int(os.getenv("PORT", "7860"))
+        app.run(host=host, port=port, debug=False)
 
 
 if __name__ == "__main__":

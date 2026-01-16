@@ -1,0 +1,9 @@
+api_key: ""
+image_path: "input.png"
+out_dir: "outputs"
+styles: "all"
+no_lut: false
+sample_size: 128
+lut_size: 65
+retries: 5
+debug_requests: false
