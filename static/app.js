@@ -33,6 +33,7 @@ const elements = {
   statusText: document.getElementById("status-text"),
   analysisCard: document.getElementById("analysis-card"),
   analysisText: document.getElementById("analysis-text"),
+  copyAnalysisButton: document.getElementById("copy-analysis"),
   results: document.getElementById("results"),
   errorPanel: document.getElementById("error-panel"),
   errorMessage: document.getElementById("error-message"),
@@ -91,6 +92,36 @@ elements.toggleKey.addEventListener("click", () => {
   const isPassword = elements.apiKeyInput.type === "password";
   elements.apiKeyInput.type = isPassword ? "text" : "password";
   elements.toggleKey.textContent = isPassword ? "🙈" : "👁️";
+});
+
+elements.copyAnalysisButton.addEventListener("click", async () => {
+  const text = elements.analysisText.textContent.trim();
+  if (!text) {
+    return;
+  }
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+    }
+    elements.copyAnalysisButton.textContent = "已复制";
+    elements.copyAnalysisButton.classList.add("copied");
+    setTimeout(() => {
+      elements.copyAnalysisButton.textContent = "复制";
+      elements.copyAnalysisButton.classList.remove("copied");
+    }, 1500);
+  } catch (error) {
+    showError("复制失败，请手动选择文本。");
+  }
 });
 
 elements.generateButton.addEventListener("click", () => {
@@ -198,6 +229,33 @@ function renderResults() {
   });
 }
 
+async function generateStyle(style, analysis) {
+  const formData = new FormData();
+  formData.append("image", state.file);
+  formData.append("api_key", elements.apiKeyInput.value.trim());
+  formData.append("doubao_api_key", elements.apiKeyInput.value.trim());
+  formData.append("analysis_model", elements.analysisModelSelect.value);
+  formData.append("image_model", elements.imageModelSelect.value);
+  formData.append("analysis", analysis);
+  formData.append("generate_lut", elements.lutToggle.checked ? "1" : "0");
+  formData.append("debug_requests", elements.debugToggle.checked ? "1" : "0");
+  formData.append("styles", style.id);
+
+  const response = await fetch("/api/generate", {
+    method: "POST",
+    body: formData,
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || "生成失败，请重试。");
+  }
+  const result = (data.results || [])[0];
+  if (!result) {
+    throw new Error("未获取到生成结果。");
+  }
+  return { result, analysis: data.analysis || analysis };
+}
+
 async function streamAnalysis() {
   const formData = new FormData();
   formData.append("image", state.file);
@@ -264,46 +322,29 @@ async function generateStyles() {
       elements.analysisCard.classList.add("hidden");
     }
 
-    setStatus(true, "正在生成调色参考...");
+    state.results = [];
+    elements.results.className = "results";
+    elements.results.innerHTML = "";
 
-    const formData = new FormData();
-    formData.append("image", state.file);
-    formData.append("api_key", elements.apiKeyInput.value.trim());
-    formData.append("doubao_api_key", elements.apiKeyInput.value.trim());
-    formData.append("analysis_model", elements.analysisModelSelect.value);
-    formData.append("image_model", elements.imageModelSelect.value);
-    formData.append("analysis", analysis);
-    formData.append("generate_lut", elements.lutToggle.checked ? "1" : "0");
-    formData.append("debug_requests", elements.debugToggle.checked ? "1" : "0");
-    STYLE_PRESETS.forEach((style) => formData.append("styles", style.id));
-
-    const response = await fetch("/api/generate", {
-      method: "POST",
-      body: formData,
-    });
-
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.error || "生成失败，请重试。");
+    for (let index = 0; index < STYLE_PRESETS.length; index += 1) {
+      const style = STYLE_PRESETS[index];
+      setStatus(true, `正在生成调色参考 (${index + 1}/${STYLE_PRESETS.length})...`);
+      const { result, analysis: mergedAnalysis } = await generateStyle(style, analysis);
+      state.analysis = mergedAnalysis;
+      state.results.push(result);
+      renderResults();
+      elements.regenerateButton.classList.remove("hidden");
     }
-
-    state.analysis = data.analysis || analysis;
-    state.results = data.results || [];
-    state.runId = data.run_id || "";
 
     if (state.analysis) {
       elements.analysisText.textContent = state.analysis;
       elements.analysisCard.classList.remove("hidden");
     }
-
-    if (state.results.length) {
-      renderResults();
-      elements.regenerateButton.classList.remove("hidden");
-    } else {
-      renderEmptyState();
-    }
   } catch (error) {
     showError(error.message || "生成失败，请重试。");
+    if (!state.results.length) {
+      renderEmptyState();
+    }
   } finally {
     setStatus(false, "");
   }
