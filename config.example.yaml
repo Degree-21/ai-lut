@@ -1,4 +1,7 @@
 api_key: ""
+doubao_api_key: ""
+analysis_model: "doubao-1.5-vision-pro-250328"
+image_model: "doubao-seedream-4-0-250828"
 image_path: "input.png"
 out_dir: "outputs"
 styles: "all"

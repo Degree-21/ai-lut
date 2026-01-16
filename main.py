@@ -15,11 +15,11 @@ import numpy as np
 import requests
 from PIL import Image
 from flask import Flask, jsonify, render_template, request, send_from_directory
+from openai import OpenAI
 
 from config import load_settings
 
-ANALYSIS_MODEL = "gemini-2.5-flash"
-IMAGE_MODEL = "gemini-2.5-flash"
+
 
 DEBUG_REQUESTS_STATE = False
 
@@ -81,6 +81,9 @@ class ColorTools:
 class AppConfig:
     image_path: Path
     api_key: str
+    doubao_api_key: str
+    analysis_model: str
+    image_model: str
     out_dir: Path
     styles: str
     no_lut: bool
@@ -106,6 +109,9 @@ def load_config() -> AppConfig:
     return AppConfig(
         image_path=image_path,
         api_key=str(settings.get("api_key", "")),
+        doubao_api_key=str(settings.get("doubao_api_key", "")),
+        analysis_model=str(settings.get("analysis_model", "gemini-1.5-flash")),
+        image_model=str(settings.get("image_model", "gemini-1.5-flash")),
         out_dir=out_dir,
         styles=styles,
         no_lut=no_lut,
@@ -159,8 +165,15 @@ def load_image_base64(path: Path) -> Tuple[str, Image.Image, str]:
     return encoded, image, guess_mime_type(path)
 
 
-def fetch_with_retry(url: str, payload: Dict, retries: int = 5, backoff: float = 1.0) -> Dict:
-    headers = {"Content-Type": "application/json"}
+def fetch_with_retry(
+    url: str,
+    payload: Dict,
+    headers: Dict | None = None,
+    retries: int = 5,
+    backoff: float = 1.0,
+) -> Dict:
+    if headers is None:
+        headers = {"Content-Type": "application/json"}
     for attempt in range(retries + 1):
         try:
             if DEBUG_REQUESTS_STATE or env_flag("DEBUG_REQUESTS", "0"):
@@ -226,9 +239,50 @@ def resolve_style_ids(styles_value: str) -> List[str]:
     return [style.id for style in STYLE_PRESETS if style.id in wanted]
 
 
-def analyze_scene(image_b64: str, mime_type: str, api_key: str, retries: int) -> str:
-    if not api_key:
-        raise RuntimeError("未提供 API Key，请通过环境变量 GOOGLE_API_KEY/GEMINI_API_KEY/API_KEY 设置。")
+def analyze_scene(
+    image_b64: str, mime_type: str, config: AppConfig, retries: int
+) -> str:
+    if config.analysis_model.startswith("doubao-"):
+        if not config.doubao_api_key:
+            raise RuntimeError("未提供豆包 API Key，请通过环境变量 ARK_API_KEY 设置。")
+        
+        client = OpenAI(
+            base_url="https://ark.cn-beijing.volces.com/api/v3",
+            api_key=config.doubao_api_key,
+        )
+        
+        response = client.chat.completions.create(
+            model=config.analysis_model,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{mime_type};base64,{image_b64}"
+                            },
+                        },
+                        {
+                            "type": "text",
+                            "text": (
+                                "请作为电影调色师和摄影指导，详细描述这张静帧。包含："
+                                "1.画面构图和所有主体元素。2.现有的光源位置和性质。3.画面的物理结构。"
+                                "请输出一段极其详尽的描述，用于指导另一个AI生成相同结构但不同影调的图片。"
+                            ),
+                        },
+                    ],
+                }
+            ],
+        )
+        return response.choices[0].message.content or "检测到复杂场景"
+
+    if not config.api_key:
+        raise RuntimeError(
+            "未提供 API Key，请通过环境变量 GOOGLE_API_KEY/GEMINI_API_KEY/API_KEY 设置。"
+        )
+    
+    ANALYSIS_MODEL = config.analysis_model
     payload = {
         "contents": [
             {
@@ -247,7 +301,7 @@ def analyze_scene(image_b64: str, mime_type: str, api_key: str, retries: int) ->
     }
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{ANALYSIS_MODEL}:generateContent?key={api_key}"
+        f"{ANALYSIS_MODEL}:generateContent?key={config.api_key}"
     )
     result = fetch_with_retry(url, payload, retries=retries)
     return (
@@ -274,37 +328,66 @@ def generate_style_image(
     style: StylePreset,
     image_b64: str,
     mime_type: str,
-    api_key: str,
+    config: AppConfig,
     retries: int,
 ) -> bytes:
-    if not api_key:
-        raise RuntimeError("未提供 API Key，请通过环境变量 GOOGLE_API_KEY/GEMINI_API_KEY/API_KEY 设置。")
-    prompt = (
-        f"A professional movie frame with {style.name} color grade. {style.description}."
-        f" Base scene description: {scene_description}."
-        " CRITICAL: Keep the original composition, subject identity, and physical structure 100% identical."
-        " Only change lighting and color grading. High detail, cinematic lighting, 4k quality."
-    )
-    payload = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": prompt},
-                    {"inlineData": {"mimeType": mime_type, "data": image_b64}},
-                ]
-            }
-        ],
-        "generationConfig": {"responseModalities": ["IMAGE"]},
-    }
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{IMAGE_MODEL}:generateContent?key={api_key}"
-    )
-    result = fetch_with_retry(url, payload, retries=retries)
-    try:
-        return extract_image_bytes(result)
-    except RuntimeError as exc:
-        raise RuntimeError(f"未获取到 {style.id} 的生成结果") from exc
+    if config.image_model.startswith("doubao-"):
+        if not config.doubao_api_key:
+            raise RuntimeError("未提供豆包 API Key，请通过环境变量 ARK_API_KEY 设置。")
+        url = "https://ark.cn-beijing.volces.com/api/v3/images/generations"
+        payload = {
+            "model": config.image_model,
+            "prompt": (
+                f"A professional movie frame with {style.name} color grade. {style.description}."
+                f" Base scene description: {scene_description}."
+                " CRITICAL: Keep the original composition, subject identity, and physical structure 100% identical."
+                " Only change lighting and color grading. High detail, cinematic lighting, 4k quality."
+            ),
+            "image": [f"data:{mime_type};base64,{image_b64}"],
+            "size": "1024x1024",  # Default size, can be made configurable
+            "watermark": False,
+        }
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {config.doubao_api_key}",
+        }
+        result = fetch_with_retry(url, payload, headers=headers, retries=retries)
+        
+        image_url = result.get("data", [{}])[0].get("url")
+        if image_url:
+            image_response = requests.get(image_url, timeout=120)
+            image_response.raise_for_status()
+            return image_response.content
+        raise RuntimeError("未获取到生成图像数据")
+    else:
+        if not config.api_key:
+            raise RuntimeError("未提供 API Key，请通过环境变量 GOOGLE_API_KEY/GEMINI_API_KEY/API_KEY 设置。")
+        prompt = (
+            f"A professional movie frame with {style.name} color grade. {style.description}."
+            f" Base scene description: {scene_description}."
+            " CRITICAL: Keep the original composition, subject identity, and physical structure 100% identical."
+            " Only change lighting and color grading. High detail, cinematic lighting, 4k quality."
+        )
+        payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {"text": prompt},
+                        {"inlineData": {"mimeType": mime_type, "data": image_b64}},
+                    ]
+                }
+            ],
+            "generationConfig": {"responseModalities": ["IMAGE"]},
+        }
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{config.image_model}:generateContent?key={config.api_key}"
+        )
+        result = fetch_with_retry(url, payload, retries=retries)
+        try:
+            return extract_image_bytes(result)
+        except RuntimeError as exc:
+            raise RuntimeError(f"未获取到 {style.id} 的生成结果") from exc
 
 
 def extract_histogram(image: Image.Image, sample_size: int) -> Dict[str, np.ndarray]:
@@ -410,7 +493,9 @@ def run_pipeline(
         if not selected_styles:
             raise RuntimeError("未选择任何风格。")
 
-        scene_description = analyze_scene(image_b64, mime_type, config.api_key, config.retries)
+        scene_description = analyze_scene(
+            image_b64, mime_type, config, config.retries
+        )
         analysis_path = out_dir / "analysis.txt"
         analysis_path.write_text(scene_description, encoding="utf-8")
 
@@ -421,7 +506,7 @@ def run_pipeline(
                 style,
                 image_b64,
                 mime_type,
-                config.api_key,
+                config,
                 config.retries,
             )
             image_out = out_dir / f"ref_{style.id}.png"
@@ -483,15 +568,40 @@ def create_app() -> Flask:
     @app.route("/")
     def index():
         settings = load_settings()
-        return render_template("index.html", api_key=str(settings.get("api_key", "")))
+        return render_template(
+            "index.html",
+            api_key=str(settings.get("api_key", "")),
+            doubao_api_key=str(settings.get("doubao_api_key", "")),
+            image_model=str(settings.get("image_model", "gemini-1.5-flash")),
+        )
 
     @app.route("/api/generate", methods=["POST"])
     def api_generate():
         require_dependencies()
         settings = load_settings()
-        api_key = request.form.get("api_key", "").strip() or str(settings.get("api_key", ""))
-        if not api_key:
+        api_key = request.form.get("api_key", "").strip() or str(
+            settings.get("api_key", "")
+        )
+        doubao_api_key = request.form.get("doubao_api_key", "").strip() or str(
+            settings.get("doubao_api_key", "")
+        )
+        analysis_model = request.form.get("analysis_model", "").strip() or str(
+            settings.get("analysis_model", "gemini-1.5-flash")
+        )
+        image_model = request.form.get("image_model", "").strip() or str(
+            settings.get("image_model", "gemini-1.5-flash")
+        )
+        if (
+            not api_key
+            and not analysis_model.startswith("doubao-")
+            and not image_model.startswith("doubao-")
+        ):
             return jsonify({"error": "未提供 API Key，请先填写。"}), 400
+        if (
+            not doubao_api_key
+            and (analysis_model.startswith("doubao-") or image_model.startswith("doubao-"))
+        ):
+            return jsonify({"error": "未提供豆包 API Key，请先填写。"}), 400
 
         image_file = request.files.get("image")
         if image_file is None:
@@ -501,8 +611,18 @@ def create_app() -> Flask:
         if not image_bytes:
             return jsonify({"error": "上传的图片为空。"}), 400
 
-        generate_lut_flag = request.form.get("generate_lut", "1").lower() in {"1", "true", "yes", "on"}
-        debug_requests = request.form.get("debug_requests", "0").lower() in {"1", "true", "yes", "on"}
+        generate_lut_flag = request.form.get("generate_lut", "1").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        debug_requests = request.form.get("debug_requests", "0").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
         style_ids = request.form.getlist("styles")
         if not style_ids:
             style_ids = [style.id for style in STYLE_PRESETS]
@@ -514,6 +634,9 @@ def create_app() -> Flask:
         config = AppConfig(
             image_path=Path(settings.get("image_path", "input.png")),
             api_key=api_key,
+            doubao_api_key=doubao_api_key,
+            analysis_model=analysis_model,
+            image_model=image_model,
             out_dir=out_dir,
             styles=",".join(style_ids),
             no_lut=not generate_lut_flag,

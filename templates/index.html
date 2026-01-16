@@ -11,7 +11,6 @@
       <header class="container header">
         <div class="title">
           <h1>调色灵感专家</h1>
-          <span class="badge">Gemini 2.5 Flash</span>
         </div>
         <p class="subtitle">深度分析场景光影，生成电影级调色参考与 3D LUT</p>
       </header>
@@ -44,10 +43,34 @@
               </div>
 
               <div class="field">
-                <label>API Key</label>
+                <label for="analysis-model-select">分析模型</label>
+                <select id="analysis-model-select" class="select-input">
+                  <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                  <option value="doubao-1.5-vision-pro-250328" selected>Doubao Vision Pro</option>
+                </select>
+              </div>
+
+              <div class="field">
+                <label for="image-model-select">生成模型</label>
+                <select id="image-model-select" class="select-input">
+                  <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                  <option value="doubao-seedream-4-0-250828" selected>Doubao Seedream 4.0</option>
+                </select>
+              </div>
+
+              <div class="field" id="gemini-key-field">
+                <label>Google API Key</label>
                 <div class="api-input">
                   <input id="api-key-input" type="password" placeholder="请输入 Google API Key" />
                   <button id="toggle-key" class="icon-button" type="button">👁️</button>
+                </div>
+              </div>
+
+              <div class="field hidden" id="doubao-key-field">
+                <label>Doubao API Key</label>
+                <div class="api-input">
+                  <input id="doubao-api-key-input" type="password" placeholder="请输入 Doubao API Key" />
+                  <button id="toggle-doubao-key" class="icon-button" type="button">👁️</button>
                 </div>
               </div>
 
@@ -104,7 +127,7 @@
       <footer class="container footer">
         <p>核心算法: OKLAB 感知均匀匹配 | 直方图分布映射 | 65阶精度</p>
         <div class="footer-right">
-          <span>Model: Gemini 2.5 Flash</span>
+          <span id="image-model-badge">Model: Gemini 1.5 Flash</span>
           <span>Target: Rec.709 G2.4</span>
         </div>
       </footer>
@@ -112,7 +135,8 @@
 
     <script>
       window.APP_CONFIG = {
-        apiKey: "{{ api_key|e }}"
+        apiKey: "{{ api_key|e }}",
+        doubaoApiKey: "{{ doubao_api_key|e }}"
       };
     </script>
     <script src="{{ url_for('static', filename='app.js') }}"></script>

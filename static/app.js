@@ -21,8 +21,14 @@ const elements = {
   uploadArea: document.getElementById("upload-area"),
   uploadPlaceholder: document.querySelector(".upload-placeholder"),
   resetButton: document.getElementById("reset-button"),
+  analysisModelSelect: document.getElementById("analysis-model-select"),
+  imageModelSelect: document.getElementById("image-model-select"),
+  geminiKeyField: document.getElementById("gemini-key-field"),
+  doubaoKeyField: document.getElementById("doubao-key-field"),
   apiKeyInput: document.getElementById("api-key-input"),
+  doubaoApiKeyInput: document.getElementById("doubao-api-key-input"),
   toggleKey: document.getElementById("toggle-key"),
+  toggleDoubaoKey: document.getElementById("toggle-doubao-key"),
   lutToggle: document.getElementById("lut-toggle"),
   debugToggle: document.getElementById("debug-toggle"),
   generateButton: document.getElementById("generate-button"),
@@ -33,12 +39,42 @@ const elements = {
   analysisText: document.getElementById("analysis-text"),
   results: document.getElementById("results"),
   errorPanel: document.getElementById("error-panel"),
-  errorMessage: document.getElementById("error-message")
+  errorMessage: document.getElementById("error-message"),
+  imageModelBadge: document.getElementById("image-model-badge")
 };
 
-if (window.APP_CONFIG && window.APP_CONFIG.apiKey) {
-  elements.apiKeyInput.value = window.APP_CONFIG.apiKey;
+if (window.APP_CONFIG) {
+  if (window.APP_CONFIG.apiKey) {
+    elements.apiKeyInput.value = window.APP_CONFIG.apiKey;
+  }
+  if (window.APP_CONFIG.doubaoApiKey) {
+    elements.doubaoApiKeyInput.value = window.APP_CONFIG.doubaoApiKey;
+  }
+  if (window.APP_CONFIG.analysisModel) {
+    elements.analysisModelSelect.value = window.APP_CONFIG.analysisModel;
+    elements.analysisModelSelect.dispatchEvent(new Event('change')); // Trigger change to show/hide API key field
+  }
+  if (window.APP_CONFIG.imageModel) {
+    elements.imageModelSelect.value = window.APP_CONFIG.imageModel;
+    elements.imageModelBadge.textContent = `Model: ${elements.imageModelSelect.options[elements.imageModelSelect.selectedIndex].text}`;
+  }
 }
+
+elements.analysisModelSelect.addEventListener("change", () => {
+  const model = elements.analysisModelSelect.value;
+  if (model.startsWith("doubao-")) {
+    elements.geminiKeyField.classList.add("hidden");
+    elements.doubaoKeyField.classList.remove("hidden");
+  } else {
+    elements.geminiKeyField.classList.remove("hidden");
+    elements.doubaoKeyField.classList.add("hidden");
+  }
+});
+
+elements.imageModelSelect.addEventListener("change", () => {
+  const model = elements.imageModelSelect.options[elements.imageModelSelect.selectedIndex].text;
+  elements.imageModelBadge.textContent = `Model: ${model}`;
+});
 
 elements.fileInput.addEventListener("change", (event) => {
   const file = event.target.files[0];
@@ -74,6 +110,12 @@ elements.toggleKey.addEventListener("click", () => {
   const isPassword = elements.apiKeyInput.type === "password";
   elements.apiKeyInput.type = isPassword ? "text" : "password";
   elements.toggleKey.textContent = isPassword ? "🙈" : "👁️";
+});
+
+elements.toggleDoubaoKey.addEventListener("click", () => {
+  const isPassword = elements.doubaoApiKeyInput.type === "password";
+  elements.doubaoApiKeyInput.type = isPassword ? "text" : "password";
+  elements.toggleDoubaoKey.textContent = isPassword ? "🙈" : "👁️";
 });
 
 elements.generateButton.addEventListener("click", () => {
@@ -187,19 +229,22 @@ async function generateStyles() {
     return;
   }
   clearError();
-  setStatus(true, "Gemini 正在分析场景并生成调色参考...");
+  setStatus(true, "正在分析场景并生成调色参考...");
 
   try {
     const formData = new FormData();
     formData.append("image", state.file);
     formData.append("api_key", elements.apiKeyInput.value.trim());
+    formData.append("doubao_api_key", elements.doubaoApiKeyInput.value.trim());
+    formData.append("analysis_model", elements.analysisModelSelect.value);
+    formData.append("image_model", elements.imageModelSelect.value);
     formData.append("generate_lut", elements.lutToggle.checked ? "1" : "0");
     formData.append("debug_requests", elements.debugToggle.checked ? "1" : "0");
     STYLE_PRESETS.forEach((style) => formData.append("styles", style.id));
 
     const response = await fetch("/api/generate", {
       method: "POST",
-      body: formData
+      body: formData,
     });
 
     const data = await response.json();

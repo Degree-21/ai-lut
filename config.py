@@ -9,6 +9,9 @@ import yaml
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "api_key": "",
+    "doubao_api_key": "",
+    "analysis_model": "doubao-1.5-vision-pro-250328",
+    "image_model": "doubao-seedream-4-0-250828",
     "image_path": "input.png",
     "out_dir": "outputs",
     "styles": "all",
@@ -36,4 +39,8 @@ def load_settings(config_path: str | Path = "config.yaml") -> Dict[str, Any]:
     )
     if api_key_env:
         settings["api_key"] = api_key_env
+
+    doubao_api_key_env = os.getenv("ARK_API_KEY")
+    if doubao_api_key_env:
+        settings["doubao_api_key"] = doubao_api_key_env
     return settings
