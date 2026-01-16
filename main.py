@@ -14,7 +14,7 @@ from typing import Dict, List, Tuple
 import numpy as np
 import requests
 from PIL import Image
-from flask import Flask, jsonify, render_template, request, send_from_directory
+from flask import Flask, Response, jsonify, render_template, request, send_from_directory, stream_with_context
 from openai import OpenAI
 
 from config import load_settings
@@ -37,6 +37,13 @@ STYLE_PRESETS = [
     StylePreset("commercial", "时尚商业", "高饱和，色彩还原准确且明亮，光影分布均匀，质感通透。"),
     StylePreset("cyber", "赛博都市", "霓虹冷暖色差，强烈的紫色与青色碰撞，极具现代冲击力。"),
 ]
+
+
+ANALYSIS_PROMPT = (
+    "请作为电影调色师和摄影指导，详细描述这张静帧。包含："
+    "1.画面构图和所有主体元素。2.现有的光源位置和性质。3.画面的物理结构。"
+    "请输出一段极其详尽的描述，用于指导另一个AI生成相同结构但不同影调的图片。"
+)
 
 
 class ColorTools:
@@ -238,7 +245,7 @@ def resolve_style_ids(styles_value: str) -> List[str]:
 
 
 def analyze_scene(
-        image_b64: str, mime_type: str, config: AppConfig, retries: int
+    image_b64: str, mime_type: str, config: AppConfig, retries: int
 ) -> str:
     if config.analysis_model.startswith("doubao-"):
         if not config.doubao_api_key:
@@ -263,11 +270,7 @@ def analyze_scene(
                         },
                         {
                             "type": "text",
-                            "text": (
-                                "请作为电影调色师和摄影指导，详细描述这张静帧。包含："
-                                "1.画面构图和所有主体元素。2.现有的光源位置和性质。3.画面的物理结构。"
-                                "请输出一段极其详尽的描述，用于指导另一个AI生成相同结构但不同影调的图片。"
-                            ),
+                            "text": ANALYSIS_PROMPT,
                         },
                     ],
                 }
@@ -287,9 +290,7 @@ def analyze_scene(
                 "parts": [
                     {
                         "text": (
-                            "请作为电影调色师和摄影指导，详细描述这张静帧。包含："
-                            "1.画面构图和所有主体元素。2.现有的光源位置和性质。3.画面的物理结构。"
-                            "请输出一段极其详尽的描述，用于指导另一个AI生成相同结构但不同影调的图片。"
+                            ANALYSIS_PROMPT
                         )
                     },
                     {"inlineData": {"mimeType": mime_type, "data": image_b64}},
@@ -338,6 +339,96 @@ def extract_doubao_image_bytes(result: Dict) -> bytes:
         image_response.raise_for_status()
         return image_response.content
     raise RuntimeError("未获取到生成图像数据")
+
+
+def stream_analyze_scene(
+    image_b64: str, mime_type: str, config: AppConfig, retries: int
+):
+    if not config.analysis_model.startswith("doubao-"):
+        yield analyze_scene(image_b64, mime_type, config, retries)
+        return
+    if not config.doubao_api_key:
+        raise RuntimeError("未提供豆包 API Key，请通过环境变量 ARK_API_KEY 设置。")
+
+    url = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
+    image_input = resolve_doubao_image_input(image_b64, mime_type)
+    payload = {
+        "model": config.analysis_model,
+        "stream": True,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": image_input}},
+                    {"type": "text", "text": ANALYSIS_PROMPT},
+                ],
+            }
+        ],
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {config.doubao_api_key}",
+    }
+
+    response = fetch_stream_with_retry(url, payload, headers=headers, retries=retries)
+    try:
+        for chunk in iter_doubao_stream(response):
+            yield chunk
+    finally:
+        response.close()
+
+
+def fetch_stream_with_retry(
+    url: str,
+    payload: Dict,
+    headers: Dict | None = None,
+    retries: int = 5,
+    backoff: float = 1.0,
+) -> requests.Response:
+    if headers is None:
+        headers = {"Content-Type": "application/json"}
+    for attempt in range(retries + 1):
+        try:
+            if DEBUG_REQUESTS_STATE or env_flag("DEBUG_REQUESTS", "0"):
+                log_request(url, payload, attempt)
+            response = requests.post(
+                url, headers=headers, data=json.dumps(payload), timeout=120, stream=True
+            )
+            if response.status_code == 401:
+                raise RuntimeError("API授权失败 (401)，请检查 Key 或模型访问权限。")
+            if not response.ok:
+                detail = response.text
+                raise RuntimeError(f"HTTP {response.status_code} 请求失败: {detail}")
+            response.raise_for_status()
+            return response
+        except Exception as exc:
+            if attempt >= retries or "401" in str(exc):
+                raise
+            time.sleep(backoff)
+            backoff *= 2
+    raise RuntimeError("请求失败")
+
+
+def iter_doubao_stream(response: requests.Response):
+    for line in response.iter_lines(decode_unicode=False):
+        if not line:
+            continue
+        try:
+            chunk = line.decode("utf-8").strip()
+        except UnicodeDecodeError:
+            continue
+        if chunk.startswith("data:"):
+            chunk = chunk[len("data:") :].strip()
+        if chunk == "[DONE]":
+            break
+        try:
+            data = json.loads(chunk)
+        except json.JSONDecodeError:
+            continue
+        delta = data.get("choices", [{}])[0].get("delta", {})
+        content = delta.get("content")
+        if content:
+            yield content
 
 
 def generate_style_image(
@@ -487,12 +578,13 @@ def generate_lut(
 
 
 def run_pipeline(
-        config: AppConfig,
-        image_b64: str,
-        source_image: Image.Image,
-        mime_type: str,
-        style_ids: List[str],
-        debug_requests: bool = False,
+    config: AppConfig,
+    image_b64: str,
+    source_image: Image.Image,
+    mime_type: str,
+    style_ids: List[str],
+    analysis_override: str | None = None,
+    debug_requests: bool = False,
 ) -> Tuple[str, List[Dict[str, object]]]:
     global DEBUG_REQUESTS_STATE
     previous_debug = DEBUG_REQUESTS_STATE
@@ -505,9 +597,12 @@ def run_pipeline(
         if not selected_styles:
             raise RuntimeError("未选择任何风格。")
 
-        scene_description = analyze_scene(
-            image_b64, mime_type, config, config.retries
-        )
+        if analysis_override:
+            scene_description = analysis_override
+        else:
+            scene_description = analyze_scene(
+                image_b64, mime_type, config, config.retries
+            )
         analysis_path = out_dir / "analysis.txt"
         analysis_path.write_text(scene_description, encoding="utf-8")
 
@@ -568,7 +663,12 @@ def run_cli() -> None:
     image_b64, source_image, mime_type = load_image_base64(config.image_path)
     style_ids = resolve_style_ids(config.styles)
     scene_description, _ = run_pipeline(
-        config, image_b64, source_image, mime_type, style_ids, debug_requests=config.debug_requests
+        config,
+        image_b64,
+        source_image,
+        mime_type,
+        style_ids,
+        debug_requests=config.debug_requests,
     )
     print(f"场景分析已保存: {config.out_dir / 'analysis.txt'}")
     print(scene_description)
@@ -601,6 +701,7 @@ def create_app() -> Flask:
             doubao_api_key = api_key
         if doubao_api_key and not api_key:
             api_key = doubao_api_key
+        analysis_override = request.form.get("analysis", "").strip()
         analysis_model = request.form.get("analysis_model", "").strip() or str(
             settings.get("analysis_model", "gemini-1.5-flash")
         )
@@ -668,7 +769,13 @@ def create_app() -> Flask:
 
         try:
             scene_description, results = run_pipeline(
-                config, image_b64, source_image, mime_type, style_ids, debug_requests=debug_requests
+                config,
+                image_b64,
+                source_image,
+                mime_type,
+                style_ids,
+                analysis_override=analysis_override or None,
+                debug_requests=debug_requests,
             )
         except Exception as exc:
             return jsonify({"error": str(exc)}), 400
@@ -695,6 +802,78 @@ def create_app() -> Flask:
                 "results": payload_results,
                 "run_id": out_dir.name,
             }
+        )
+
+    @app.route("/api/analyze_stream", methods=["POST"])
+    def api_analyze_stream():
+        require_dependencies()
+        settings = load_settings()
+        api_key = request.form.get("api_key", "").strip() or str(
+            settings.get("api_key", "")
+        )
+        doubao_api_key = request.form.get("doubao_api_key", "").strip() or str(
+            settings.get("doubao_api_key", "")
+        )
+        if api_key and not doubao_api_key:
+            doubao_api_key = api_key
+        if doubao_api_key and not api_key:
+            api_key = doubao_api_key
+        analysis_model = request.form.get("analysis_model", "").strip() or str(
+            settings.get("analysis_model", "gemini-1.5-flash")
+        )
+        if not api_key and not analysis_model.startswith("doubao-"):
+            return jsonify({"error": "未提供 API Key，请先填写。"}), 400
+        if not doubao_api_key and analysis_model.startswith("doubao-"):
+            return jsonify({"error": "未提供豆包 API Key，请先填写。"}), 400
+
+        image_file = request.files.get("image")
+        if image_file is None:
+            return jsonify({"error": "请先上传静帧。"}), 400
+        image_bytes = image_file.read()
+        if not image_bytes:
+            return jsonify({"error": "上传的图片为空。"}), 400
+
+        debug_requests = request.form.get("debug_requests", "0").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+
+        config = AppConfig(
+            image_path=Path(settings.get("image_path", "input.png")),
+            api_key=api_key,
+            doubao_api_key=doubao_api_key,
+            analysis_model=analysis_model,
+            image_model=str(settings.get("image_model", "gemini-1.5-flash")),
+            out_dir=Path(settings.get("out_dir", "outputs")),
+            styles=str(settings.get("styles", "all")),
+            no_lut=bool(settings.get("no_lut", False)),
+            sample_size=int(settings.get("sample_size", 128)),
+            lut_size=int(settings.get("lut_size", 65)),
+            retries=int(settings.get("retries", 5)),
+            debug_requests=bool(settings.get("debug_requests", False)),
+        )
+
+        mime_type = image_file.mimetype or "image/png"
+        image_b64 = base64.b64encode(image_bytes).decode("ascii")
+
+        def generate():
+            global DEBUG_REQUESTS_STATE
+            previous_debug = DEBUG_REQUESTS_STATE
+            DEBUG_REQUESTS_STATE = debug_requests or config.debug_requests
+            try:
+                for chunk in stream_analyze_scene(
+                    image_b64, mime_type, config, config.retries
+                ):
+                    yield chunk
+            finally:
+                DEBUG_REQUESTS_STATE = previous_debug
+
+        return Response(
+            stream_with_context(generate()),
+            mimetype="text/plain; charset=utf-8",
+            headers={"Cache-Control": "no-cache"},
         )
 
     @app.route("/api/download/<run_id>/<path:filename>")

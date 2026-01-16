@@ -198,21 +198,81 @@ function renderResults() {
   });
 }
 
+async function streamAnalysis() {
+  const formData = new FormData();
+  formData.append("image", state.file);
+  formData.append("api_key", elements.apiKeyInput.value.trim());
+  formData.append("doubao_api_key", elements.apiKeyInput.value.trim());
+  formData.append("analysis_model", elements.analysisModelSelect.value);
+  formData.append("debug_requests", elements.debugToggle.checked ? "1" : "0");
+
+  const response = await fetch("/api/analyze_stream", {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    let message = "解析失败，请重试。";
+    const text = await response.text();
+    try {
+      const data = JSON.parse(text);
+      message = data.error || message;
+    } catch (error) {
+      if (text) {
+        message = text;
+      }
+    }
+    throw new Error(message);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let analysis = "";
+
+  elements.analysisText.textContent = "";
+  elements.analysisCard.classList.remove("hidden");
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) {
+      break;
+    }
+    const chunk = decoder.decode(value, { stream: true });
+    if (chunk) {
+      analysis += chunk;
+      elements.analysisText.textContent = analysis;
+    }
+  }
+
+  analysis += decoder.decode();
+  elements.analysisText.textContent = analysis;
+  return analysis.trim();
+}
+
 async function generateStyles() {
   if (!state.file) {
     showError("请先上传静帧。");
     return;
   }
   clearError();
-  setStatus(true, "正在分析场景并生成调色参考...");
+  setStatus(true, "正在解析场景...");
 
   try {
+    const analysis = await streamAnalysis();
+    state.analysis = analysis;
+    if (!analysis) {
+      elements.analysisCard.classList.add("hidden");
+    }
+
+    setStatus(true, "正在生成调色参考...");
+
     const formData = new FormData();
     formData.append("image", state.file);
     formData.append("api_key", elements.apiKeyInput.value.trim());
     formData.append("doubao_api_key", elements.apiKeyInput.value.trim());
     formData.append("analysis_model", elements.analysisModelSelect.value);
     formData.append("image_model", elements.imageModelSelect.value);
+    formData.append("analysis", analysis);
     formData.append("generate_lut", elements.lutToggle.checked ? "1" : "0");
     formData.append("debug_requests", elements.debugToggle.checked ? "1" : "0");
     STYLE_PRESETS.forEach((style) => formData.append("styles", style.id));
@@ -227,8 +287,7 @@ async function generateStyles() {
       throw new Error(data.error || "生成失败，请重试。");
     }
 
-    state.analysis = data.analysis || "";
-
+    state.analysis = data.analysis || analysis;
     state.results = data.results || [];
     state.runId = data.run_id || "";
 
