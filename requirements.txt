@@ -1,0 +1,6 @@
+numpy
+Pillow
+requests
+gradio
+huggingface_hub<1.0
+PyYAML
