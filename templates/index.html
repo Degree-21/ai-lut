@@ -58,19 +58,11 @@
                 </select>
               </div>
 
-              <div class="field" id="gemini-key-field">
-                <label>Google API Key</label>
+              <div class="field" id="api-key-field">
+                <label>API Key</label>
                 <div class="api-input">
-                  <input id="api-key-input" type="password" placeholder="请输入 Google API Key" />
+                  <input id="api-key-input" type="password" placeholder="请输入 API Key" />
                   <button id="toggle-key" class="icon-button" type="button">👁️</button>
-                </div>
-              </div>
-
-              <div class="field hidden" id="doubao-key-field">
-                <label>Doubao API Key</label>
-                <div class="api-input">
-                  <input id="doubao-api-key-input" type="password" placeholder="请输入 Doubao API Key" />
-                  <button id="toggle-doubao-key" class="icon-button" type="button">👁️</button>
                 </div>
               </div>
 
@@ -95,13 +87,6 @@
               </div>
             </section>
 
-            <section id="analysis-card" class="card hidden">
-              <div class="card-title">
-                <span class="icon">ℹ️</span>
-                <h3>AI 场景分析</h3>
-              </div>
-              <div id="analysis-text" class="analysis"></div>
-            </section>
           </div>
 
           <div class="column wide">
@@ -112,6 +97,14 @@
               </div>
               <button id="regenerate-button" class="link-button hidden" type="button">⟳ 重新创作</button>
             </div>
+
+            <section id="analysis-card" class="card hidden">
+              <div class="card-title">
+                <span class="icon">ℹ️</span>
+                <h3>AI 场景分析</h3>
+              </div>
+              <div id="analysis-text" class="analysis"></div>
+            </section>
 
             <div id="results" class="results empty-state">
               <div class="empty-card">
@@ -135,8 +128,7 @@
 
     <script>
       window.APP_CONFIG = {
-        apiKey: "{{ api_key|e }}",
-        doubaoApiKey: "{{ doubao_api_key|e }}"
+        apiKey: "{{ api_key|e }}"
       };
     </script>
     <script src="{{ url_for('static', filename='app.js') }}"></script>

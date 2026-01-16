@@ -43,4 +43,9 @@ def load_settings(config_path: str | Path = "config.yaml") -> Dict[str, Any]:
     doubao_api_key_env = os.getenv("ARK_API_KEY")
     if doubao_api_key_env:
         settings["doubao_api_key"] = doubao_api_key_env
+
+    if not settings.get("api_key") and settings.get("doubao_api_key"):
+        settings["api_key"] = settings["doubao_api_key"]
+    if not settings.get("doubao_api_key") and settings.get("api_key"):
+        settings["doubao_api_key"] = settings["api_key"]
     return settings

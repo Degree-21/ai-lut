@@ -257,14 +257,43 @@ body {
   }
 }
 
+@media (max-width: 640px) {
+  .title h1 {
+    font-size: 28px;
+  }
+  .page {
+    padding: 16px 8px 32px;
+  }
+}
+
 .analysis {
-  max-height: 200px;
+  max-height: 400px;
   overflow-y: auto;
-  font-size: 13px;
-  color: #64748b;
-  line-height: 1.6;
-  font-style: italic;
+  font-size: 14px;
+  color: #334155;
+  line-height: 1.7;
+  font-style: normal;
   padding-right: 8px;
+  white-space: pre-wrap;
+  background: #f1f5f9;
+  padding: 12px;
+  border-radius: 12px;
+}
+
+.select-input {
+  width: 100%;
+  border: 1px solid #e2e8f0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  background: #fff;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+  background-position: right 0.5rem center;
+  background-repeat: no-repeat;
+  background-size: 1.5em 1.5em;
+  padding-right: 2.5rem;
 }
 
 .analysis::-webkit-scrollbar {

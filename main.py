@@ -19,8 +19,6 @@ from openai import OpenAI
 
 from config import load_settings
 
-
-
 DEBUG_REQUESTS_STATE = False
 
 
@@ -166,11 +164,11 @@ def load_image_base64(path: Path) -> Tuple[str, Image.Image, str]:
 
 
 def fetch_with_retry(
-    url: str,
-    payload: Dict,
-    headers: Dict | None = None,
-    retries: int = 5,
-    backoff: float = 1.0,
+        url: str,
+        payload: Dict,
+        headers: Dict | None = None,
+        retries: int = 5,
+        backoff: float = 1.0,
 ) -> Dict:
     if headers is None:
         headers = {"Content-Type": "application/json"}
@@ -240,17 +238,17 @@ def resolve_style_ids(styles_value: str) -> List[str]:
 
 
 def analyze_scene(
-    image_b64: str, mime_type: str, config: AppConfig, retries: int
+        image_b64: str, mime_type: str, config: AppConfig, retries: int
 ) -> str:
     if config.analysis_model.startswith("doubao-"):
         if not config.doubao_api_key:
             raise RuntimeError("未提供豆包 API Key，请通过环境变量 ARK_API_KEY 设置。")
-        
+
         client = OpenAI(
             base_url="https://ark.cn-beijing.volces.com/api/v3",
             api_key=config.doubao_api_key,
         )
-        
+
         response = client.chat.completions.create(
             model=config.analysis_model,
             messages=[
@@ -281,7 +279,7 @@ def analyze_scene(
         raise RuntimeError(
             "未提供 API Key，请通过环境变量 GOOGLE_API_KEY/GEMINI_API_KEY/API_KEY 设置。"
         )
-    
+
     ANALYSIS_MODEL = config.analysis_model
     payload = {
         "contents": [
@@ -323,18 +321,38 @@ def extract_image_bytes(result: Dict) -> bytes:
     raise RuntimeError("未获取到生成图像数据")
 
 
+def resolve_doubao_image_input(image_b64: str, mime_type: str) -> str:
+    if image_b64.startswith(("http://", "https://")):
+        return image_b64
+    return f"data:{mime_type};base64,{image_b64}"
+
+
+def extract_doubao_image_bytes(result: Dict) -> bytes:
+    data_item = result.get("data", [{}])[0]
+    b64_data = data_item.get("b64_json")
+    if b64_data:
+        return base64.b64decode(b64_data)
+    image_url = data_item.get("url")
+    if image_url:
+        image_response = requests.get(image_url, timeout=120)
+        image_response.raise_for_status()
+        return image_response.content
+    raise RuntimeError("未获取到生成图像数据")
+
+
 def generate_style_image(
-    scene_description: str,
-    style: StylePreset,
-    image_b64: str,
-    mime_type: str,
-    config: AppConfig,
-    retries: int,
+        scene_description: str,
+        style: StylePreset,
+        image_b64: str,
+        mime_type: str,
+        config: AppConfig,
+        retries: int,
 ) -> bytes:
     if config.image_model.startswith("doubao-"):
         if not config.doubao_api_key:
             raise RuntimeError("未提供豆包 API Key，请通过环境变量 ARK_API_KEY 设置。")
         url = "https://ark.cn-beijing.volces.com/api/v3/images/generations"
+        image_input = resolve_doubao_image_input(image_b64, mime_type)
         payload = {
             "model": config.image_model,
             "prompt": (
@@ -343,8 +361,8 @@ def generate_style_image(
                 " CRITICAL: Keep the original composition, subject identity, and physical structure 100% identical."
                 " Only change lighting and color grading. High detail, cinematic lighting, 4k quality."
             ),
-            "image": [f"data:{mime_type};base64,{image_b64}"],
-            "size": "1024x1024",  # Default size, can be made configurable
+            "image": [image_input],
+            "size": "2k",
             "watermark": False,
         }
         headers = {
@@ -352,13 +370,7 @@ def generate_style_image(
             "Authorization": f"Bearer {config.doubao_api_key}",
         }
         result = fetch_with_retry(url, payload, headers=headers, retries=retries)
-        
-        image_url = result.get("data", [{}])[0].get("url")
-        if image_url:
-            image_response = requests.get(image_url, timeout=120)
-            image_response.raise_for_status()
-            return image_response.content
-        raise RuntimeError("未获取到生成图像数据")
+        return extract_doubao_image_bytes(result)
     else:
         if not config.api_key:
             raise RuntimeError("未提供 API Key，请通过环境变量 GOOGLE_API_KEY/GEMINI_API_KEY/API_KEY 设置。")
@@ -422,12 +434,12 @@ def build_lookup(src_cdf: np.ndarray, tgt_cdf: np.ndarray) -> np.ndarray:
 
 
 def generate_lut(
-    source: Image.Image,
-    target: Image.Image,
-    style_id: str,
-    output_path: Path,
-    sample_size: int = 128,
-    lut_size: int = 65,
+        source: Image.Image,
+        target: Image.Image,
+        style_id: str,
+        output_path: Path,
+        sample_size: int = 128,
+        lut_size: int = 65,
 ) -> None:
     src_hist = extract_histogram(source, sample_size)
     tgt_hist = extract_histogram(target, sample_size)
@@ -475,12 +487,12 @@ def generate_lut(
 
 
 def run_pipeline(
-    config: AppConfig,
-    image_b64: str,
-    source_image: Image.Image,
-    mime_type: str,
-    style_ids: List[str],
-    debug_requests: bool = False,
+        config: AppConfig,
+        image_b64: str,
+        source_image: Image.Image,
+        mime_type: str,
+        style_ids: List[str],
+        debug_requests: bool = False,
 ) -> Tuple[str, List[Dict[str, object]]]:
     global DEBUG_REQUESTS_STATE
     previous_debug = DEBUG_REQUESTS_STATE
@@ -585,6 +597,10 @@ def create_app() -> Flask:
         doubao_api_key = request.form.get("doubao_api_key", "").strip() or str(
             settings.get("doubao_api_key", "")
         )
+        if api_key and not doubao_api_key:
+            doubao_api_key = api_key
+        if doubao_api_key and not api_key:
+            api_key = doubao_api_key
         analysis_model = request.form.get("analysis_model", "").strip() or str(
             settings.get("analysis_model", "gemini-1.5-flash")
         )
@@ -592,14 +608,14 @@ def create_app() -> Flask:
             settings.get("image_model", "gemini-1.5-flash")
         )
         if (
-            not api_key
-            and not analysis_model.startswith("doubao-")
-            and not image_model.startswith("doubao-")
+                not api_key
+                and not analysis_model.startswith("doubao-")
+                and not image_model.startswith("doubao-")
         ):
             return jsonify({"error": "未提供 API Key，请先填写。"}), 400
         if (
-            not doubao_api_key
-            and (analysis_model.startswith("doubao-") or image_model.startswith("doubao-"))
+                not doubao_api_key
+                and (analysis_model.startswith("doubao-") or image_model.startswith("doubao-"))
         ):
             return jsonify({"error": "未提供豆包 API Key，请先填写。"}), 400
 

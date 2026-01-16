@@ -23,12 +23,8 @@ const elements = {
   resetButton: document.getElementById("reset-button"),
   analysisModelSelect: document.getElementById("analysis-model-select"),
   imageModelSelect: document.getElementById("image-model-select"),
-  geminiKeyField: document.getElementById("gemini-key-field"),
-  doubaoKeyField: document.getElementById("doubao-key-field"),
   apiKeyInput: document.getElementById("api-key-input"),
-  doubaoApiKeyInput: document.getElementById("doubao-api-key-input"),
   toggleKey: document.getElementById("toggle-key"),
-  toggleDoubaoKey: document.getElementById("toggle-doubao-key"),
   lutToggle: document.getElementById("lut-toggle"),
   debugToggle: document.getElementById("debug-toggle"),
   generateButton: document.getElementById("generate-button"),
@@ -47,29 +43,14 @@ if (window.APP_CONFIG) {
   if (window.APP_CONFIG.apiKey) {
     elements.apiKeyInput.value = window.APP_CONFIG.apiKey;
   }
-  if (window.APP_CONFIG.doubaoApiKey) {
-    elements.doubaoApiKeyInput.value = window.APP_CONFIG.doubaoApiKey;
-  }
   if (window.APP_CONFIG.analysisModel) {
     elements.analysisModelSelect.value = window.APP_CONFIG.analysisModel;
-    elements.analysisModelSelect.dispatchEvent(new Event('change')); // Trigger change to show/hide API key field
   }
   if (window.APP_CONFIG.imageModel) {
     elements.imageModelSelect.value = window.APP_CONFIG.imageModel;
     elements.imageModelBadge.textContent = `Model: ${elements.imageModelSelect.options[elements.imageModelSelect.selectedIndex].text}`;
   }
 }
-
-elements.analysisModelSelect.addEventListener("change", () => {
-  const model = elements.analysisModelSelect.value;
-  if (model.startsWith("doubao-")) {
-    elements.geminiKeyField.classList.add("hidden");
-    elements.doubaoKeyField.classList.remove("hidden");
-  } else {
-    elements.geminiKeyField.classList.remove("hidden");
-    elements.doubaoKeyField.classList.add("hidden");
-  }
-});
 
 elements.imageModelSelect.addEventListener("change", () => {
   const model = elements.imageModelSelect.options[elements.imageModelSelect.selectedIndex].text;
@@ -110,12 +91,6 @@ elements.toggleKey.addEventListener("click", () => {
   const isPassword = elements.apiKeyInput.type === "password";
   elements.apiKeyInput.type = isPassword ? "text" : "password";
   elements.toggleKey.textContent = isPassword ? "🙈" : "👁️";
-});
-
-elements.toggleDoubaoKey.addEventListener("click", () => {
-  const isPassword = elements.doubaoApiKeyInput.type === "password";
-  elements.doubaoApiKeyInput.type = isPassword ? "text" : "password";
-  elements.toggleDoubaoKey.textContent = isPassword ? "🙈" : "👁️";
 });
 
 elements.generateButton.addEventListener("click", () => {
@@ -235,7 +210,7 @@ async function generateStyles() {
     const formData = new FormData();
     formData.append("image", state.file);
     formData.append("api_key", elements.apiKeyInput.value.trim());
-    formData.append("doubao_api_key", elements.doubaoApiKeyInput.value.trim());
+    formData.append("doubao_api_key", elements.apiKeyInput.value.trim());
     formData.append("analysis_model", elements.analysisModelSelect.value);
     formData.append("image_model", elements.imageModelSelect.value);
     formData.append("generate_lut", elements.lutToggle.checked ? "1" : "0");
@@ -253,11 +228,12 @@ async function generateStyles() {
     }
 
     state.analysis = data.analysis || "";
+
     state.results = data.results || [];
     state.runId = data.run_id || "";
 
     if (state.analysis) {
-      elements.analysisText.textContent = `"${state.analysis}"`;
+      elements.analysisText.textContent = state.analysis;
       elements.analysisCard.classList.remove("hidden");
     }
 
