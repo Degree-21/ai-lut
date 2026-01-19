@@ -20,7 +20,15 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "lut_size": 65,
     "retries": 5,
     "debug_requests": False,
+    "database_url": "mysql://ai_lut:ai_lut_password@localhost:3306/ai_lut?charset=utf8mb4",
+    "secret_key": "",
+    "allow_register": True,
+    "session_expire_hours": 12,
 }
+
+
+def env_flag(name: str, default: str = "0") -> bool:
+    return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 def load_settings(config_path: str | Path = "config.yaml") -> Dict[str, Any]:
@@ -43,6 +51,25 @@ def load_settings(config_path: str | Path = "config.yaml") -> Dict[str, Any]:
     doubao_api_key_env = os.getenv("ARK_API_KEY")
     if doubao_api_key_env:
         settings["doubao_api_key"] = doubao_api_key_env
+
+    database_url_env = os.getenv("DATABASE_URL")
+    if database_url_env:
+        settings["database_url"] = database_url_env
+
+    secret_key_env = os.getenv("SECRET_KEY")
+    if secret_key_env:
+        settings["secret_key"] = secret_key_env
+
+    allow_register_env = os.getenv("ALLOW_REGISTER")
+    if allow_register_env is not None and allow_register_env != "":
+        settings["allow_register"] = env_flag("ALLOW_REGISTER", "0")
+
+    session_expire_env = os.getenv("SESSION_EXPIRE_HOURS")
+    if session_expire_env:
+        try:
+            settings["session_expire_hours"] = int(session_expire_env)
+        except ValueError:
+            pass
 
     if not settings.get("api_key") and settings.get("doubao_api_key"):
         settings["api_key"] = settings["doubao_api_key"]

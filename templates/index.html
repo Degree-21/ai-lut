@@ -13,6 +13,12 @@
           <h1>调色灵感专家</h1>
         </div>
         <p class="subtitle">深度分析场景光影，生成电影级调色参考与 3D LUT</p>
+        {% if current_user %}
+          <div class="header-actions">
+            <span class="user-badge">你好，{{ current_user|e }}</span>
+            <a class="link-button" href="{{ url_for('logout') }}">退出</a>
+          </div>
+        {% endif %}
       </header>
 
       <main class="container main">

@@ -8,18 +8,43 @@ import sys
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import timedelta
+from functools import wraps
 from pathlib import Path
 from typing import Dict, List, Tuple
 
 import numpy as np
 import requests
 from PIL import Image
-from flask import Flask, Response, jsonify, render_template, request, send_from_directory, stream_with_context
+from flask import (
+    Flask,
+    Response,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    send_from_directory,
+    session,
+    stream_with_context,
+    url_for,
+)
 from openai import OpenAI
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from config import load_settings
+from user_store import (
+    UserExistsError,
+    count_users,
+    create_user,
+    fetch_user_by_username,
+    init_db,
+    mark_last_login,
+)
 
 DEBUG_REQUESTS_STATE = False
+MIN_PASSWORD_LENGTH = 8
+MIN_USERNAME_LENGTH = 3
+MAX_USERNAME_LENGTH = 32
 
 
 @dataclass(frozen=True)
@@ -102,6 +127,51 @@ def env_flag(name: str, default: str = "0") -> bool:
     return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
+def registration_open(database_url: str, allow_register: bool) -> bool:
+    if allow_register:
+        return True
+    try:
+        return count_users(database_url) == 0
+    except Exception:
+        return False
+
+
+def clean_next_url(value: str | None) -> str | None:
+    if not value:
+        return None
+    if not value.startswith("/") or value.startswith("//"):
+        return None
+    return value
+
+
+def login_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if session.get("user_id"):
+            return view(*args, **kwargs)
+        if request.path.startswith("/api/"):
+            return jsonify({"error": "未登录，请先登录。"}), 401
+        next_url = request.full_path
+        if next_url.endswith("?"):
+            next_url = request.path
+        return redirect(url_for("login", next=next_url))
+
+    return wrapped
+
+
+def validate_registration(username: str, password: str, confirm: str) -> str | None:
+    if not username:
+        return "请输入用户名。"
+    if len(username) < MIN_USERNAME_LENGTH or len(username) > MAX_USERNAME_LENGTH:
+        return f"用户名长度需在 {MIN_USERNAME_LENGTH}-{MAX_USERNAME_LENGTH} 个字符。"
+    if not password:
+        return "请输入密码。"
+    if len(password) < MIN_PASSWORD_LENGTH:
+        return f"密码至少 {MIN_PASSWORD_LENGTH} 位。"
+    if password != confirm:
+        return "两次输入的密码不一致。"
+    return None
+
 def load_config() -> AppConfig:
     settings = load_settings()
     image_path = Path(settings.get("image_path", "input.png"))
@@ -127,7 +197,7 @@ def load_config() -> AppConfig:
     )
 
 
-def require_dependencies() -> None:
+def require_dependencies(require_db: bool = True) -> None:
     missing = []
     try:
         import requests  # noqa: F401
@@ -149,6 +219,11 @@ def require_dependencies() -> None:
         import flask  # noqa: F401
     except Exception:
         missing.append("Flask")
+    if require_db:
+        try:
+            import aiomysql  # noqa: F401
+        except Exception:
+            missing.append("aiomysql")
     if missing:
         joined = ", ".join(missing)
         raise RuntimeError(f"缺少依赖: {joined}。请先安装后再运行。")
@@ -649,7 +724,7 @@ def run_pipeline(
 
 
 def run_cli() -> None:
-    require_dependencies()
+    require_dependencies(require_db=False)
     config = load_config()
     if not config.api_key:
         print(
@@ -675,9 +750,86 @@ def run_cli() -> None:
 
 
 def create_app() -> Flask:
+    settings = load_settings()
     app = Flask(__name__, static_folder="static", template_folder="templates")
+    require_dependencies()
+    database_url = str(settings.get("database_url", "")).strip()
+    if not database_url:
+        raise RuntimeError("未配置 database_url，请在 config.yaml 或环境变量 DATABASE_URL 中设置。")
+    app.config["DATABASE_URL"] = database_url
+    app.config["ALLOW_REGISTER"] = bool(settings.get("allow_register", True))
+    app.secret_key = str(settings.get("secret_key") or os.getenv("SECRET_KEY") or uuid.uuid4().hex)
+    session_hours = int(settings.get("session_expire_hours", 12))
+    app.permanent_session_lifetime = timedelta(hours=session_hours)
+    init_db(database_url)
+
+    @app.route("/login", methods=["GET", "POST"])
+    def login():
+        error = None
+        next_url = clean_next_url(request.args.get("next"))
+        register_allowed = registration_open(database_url, app.config["ALLOW_REGISTER"])
+        if request.method == "POST":
+            username = request.form.get("username", "").strip()
+            password = request.form.get("password", "")
+            next_url = clean_next_url(request.form.get("next")) or next_url
+            if not username or not password:
+                error = "请输入用户名和密码。"
+            else:
+                try:
+                    user = fetch_user_by_username(database_url, username)
+                except Exception:
+                    error = "数据库连接失败，请稍后重试。"
+                else:
+                    if not user or not check_password_hash(user["password_hash"], password):
+                        error = "用户名或密码错误。"
+                    else:
+                        session.clear()
+                        session["user_id"] = user["id"]
+                        session["username"] = user["username"]
+                        session.permanent = True
+                        mark_last_login(database_url, user["id"])
+                        return redirect(next_url or url_for("index"))
+        return render_template(
+            "login.html",
+            error=error,
+            allow_register=register_allowed,
+            next_url=next_url,
+        )
+
+    @app.route("/register", methods=["GET", "POST"])
+    def register():
+        error = None
+        register_allowed = registration_open(database_url, app.config["ALLOW_REGISTER"])
+        if not register_allowed:
+            return redirect(url_for("login"))
+        if request.method == "POST":
+            username = request.form.get("username", "").strip()
+            password = request.form.get("password", "")
+            confirm = request.form.get("confirm", "")
+            error = validate_registration(username, password, confirm)
+            if not error:
+                try:
+                    user_id = create_user(
+                        database_url, username, generate_password_hash(password)
+                    )
+                    session.clear()
+                    session["user_id"] = user_id
+                    session["username"] = username
+                    session.permanent = True
+                    return redirect(url_for("index"))
+                except UserExistsError as exc:
+                    error = str(exc)
+                except Exception:
+                    error = "注册失败，请稍后重试。"
+        return render_template("register.html", error=error)
+
+    @app.route("/logout")
+    def logout():
+        session.clear()
+        return redirect(url_for("login"))
 
     @app.route("/")
+    @login_required
     def index():
         settings = load_settings()
         return render_template(
@@ -685,9 +837,11 @@ def create_app() -> Flask:
             api_key=str(settings.get("api_key", "")),
             doubao_api_key=str(settings.get("doubao_api_key", "")),
             image_model=str(settings.get("image_model", "gemini-1.5-flash")),
+            current_user=session.get("username"),
         )
 
     @app.route("/api/generate", methods=["POST"])
+    @login_required
     def api_generate():
         require_dependencies()
         settings = load_settings()
@@ -805,6 +959,7 @@ def create_app() -> Flask:
         )
 
     @app.route("/api/analyze_stream", methods=["POST"])
+    @login_required
     def api_analyze_stream():
         require_dependencies()
         settings = load_settings()
@@ -877,6 +1032,7 @@ def create_app() -> Flask:
         )
 
     @app.route("/api/download/<run_id>/<path:filename>")
+    @login_required
     def api_download(run_id: str, filename: str):
         base_out_dir = Path(load_settings().get("out_dir", "outputs"))
         safe_dir = (base_out_dir / run_id).resolve()

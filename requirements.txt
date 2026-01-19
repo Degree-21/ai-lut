@@ -4,3 +4,4 @@ requests
 PyYAML
 Flask
 openai
+aiomysql

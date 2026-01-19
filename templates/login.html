@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>登录 - 调色灵感专家</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="container header">
+        <div class="title">
+          <h1>调色灵感专家</h1>
+        </div>
+        <p class="subtitle">请登录后继续使用系统</p>
+      </header>
+
+      <main class="container main">
+        {% if error %}
+          <section class="alert">
+            <div class="alert-icon">!</div>
+            <div>
+              <h4>登录失败</h4>
+              <p>{{ error }}</p>
+            </div>
+          </section>
+        {% endif %}
+
+        <section class="card auth-card">
+          <div class="card-title">
+            <span class="icon">🔐</span>
+            <h2>账号登录</h2>
+          </div>
+          <form method="post" class="auth-form">
+            {% if next_url %}
+              <input type="hidden" name="next" value="{{ next_url|e }}" />
+            {% endif %}
+            <div class="field">
+              <label for="username">用户名</label>
+              <input id="username" name="username" type="text" class="text-input" required />
+            </div>
+            <div class="field">
+              <label for="password">密码</label>
+              <input id="password" name="password" type="password" class="text-input" required />
+            </div>
+            <button class="primary-button" type="submit">登录</button>
+          </form>
+          {% if allow_register %}
+            <div class="auth-footer">
+              还没有账号？<a class="link-button" href="{{ url_for('register') }}">立即注册</a>
+            </div>
+          {% endif %}
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

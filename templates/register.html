@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>注册 - 调色灵感专家</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="container header">
+        <div class="title">
+          <h1>调色灵感专家</h1>
+        </div>
+        <p class="subtitle">创建一个新账号以继续</p>
+      </header>
+
+      <main class="container main">
+        {% if error %}
+          <section class="alert">
+            <div class="alert-icon">!</div>
+            <div>
+              <h4>注册失败</h4>
+              <p>{{ error }}</p>
+            </div>
+          </section>
+        {% endif %}
+
+        <section class="card auth-card">
+          <div class="card-title">
+            <span class="icon">📝</span>
+            <h2>创建账号</h2>
+          </div>
+          <form method="post" class="auth-form">
+            <div class="field">
+              <label for="username">用户名</label>
+              <input id="username" name="username" type="text" class="text-input" required />
+            </div>
+            <div class="field">
+              <label for="password">密码</label>
+              <input id="password" name="password" type="password" class="text-input" required />
+            </div>
+            <div class="field">
+              <label for="confirm">确认密码</label>
+              <input id="confirm" name="confirm" type="password" class="text-input" required />
+            </div>
+            <button class="primary-button" type="submit">注册并登录</button>
+          </form>
+          <div class="auth-footer">
+            已有账号？<a class="link-button" href="{{ url_for('login') }}">返回登录</a>
+          </div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>
