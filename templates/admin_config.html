@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>系统配置 - 调色灵感专家</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="container header">
+        <div class="title">
+          <h1>系统配置</h1>
+          <span class="badge">Admin Only</span>
+        </div>
+        <p class="subtitle">仅管理员可维护默认模型与 API Key</p>
+        {% if current_user %}
+          <div class="header-actions">
+            <span class="user-badge">你好，{{ current_user|e }}</span>
+            <a class="link-button" href="{{ url_for('index') }}">返回首页</a>
+            <a class="link-button" href="{{ url_for('logout') }}">退出</a>
+          </div>
+        {% endif %}
+      </header>
+
+      <main class="container main">
+        {% if error %}
+          <section class="alert">
+            <div class="alert-icon">!</div>
+            <div>
+              <h4>保存失败</h4>
+              <p>{{ error }}</p>
+            </div>
+          </section>
+        {% endif %}
+
+        {% if message %}
+          <section class="alert success">
+            <div class="alert-icon">✓</div>
+            <div>
+              <h4>已保存</h4>
+              <p>{{ message }}</p>
+            </div>
+          </section>
+        {% endif %}
+
+        <section class="card">
+          <div class="card-title">
+            <span class="icon">⚙️</span>
+            <h2>模型与密钥</h2>
+          </div>
+          <form method="post" class="auth-form">
+            <div class="field">
+              <label for="analysis_model">解析模型</label>
+              <input
+                id="analysis_model"
+                name="analysis_model"
+                type="text"
+                class="text-input"
+                value="{{ analysis_model|e }}"
+                required
+              />
+              <p class="field-hint">用于场景解析流式输出。</p>
+            </div>
+
+            <div class="field">
+              <label for="image_model">输出模型</label>
+              <input
+                id="image_model"
+                name="image_model"
+                type="text"
+                class="text-input"
+                value="{{ image_model|e }}"
+                required
+              />
+              <p class="field-hint">用于生成风格参考图与 LUT。</p>
+            </div>
+
+            <div class="field">
+              <label for="api_key">Gemini API Key</label>
+              <div class="input-with-action">
+                <input
+                  id="api_key"
+                  name="api_key"
+                  type="password"
+                  class="text-input"
+                  value="{{ api_key|e }}"
+                />
+                <button class="ghost-button toggle-password" type="button" data-target="api_key">显示</button>
+              </div>
+              <p class="field-hint">留空将使用豆包 Key 或环境变量。</p>
+            </div>
+
+            <div class="field">
+              <label for="doubao_api_key">豆包 API Key</label>
+              <div class="input-with-action">
+                <input
+                  id="doubao_api_key"
+                  name="doubao_api_key"
+                  type="password"
+                  class="text-input"
+                  value="{{ doubao_api_key|e }}"
+                />
+                <button class="ghost-button toggle-password" type="button" data-target="doubao_api_key">显示</button>
+              </div>
+              <p class="field-hint">留空将使用 Gemini Key 或环境变量。</p>
+            </div>
+
+            <button class="primary-button" type="submit">保存配置</button>
+          </form>
+        </section>
+      </main>
+    </div>
+    <script src="{{ url_for('static', filename='auth.js') }}"></script>
+  </body>
+</html>

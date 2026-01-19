@@ -86,3 +86,17 @@ def load_settings(config_path: str | Path = "config.yaml") -> Dict[str, Any]:
     if not settings.get("doubao_api_key") and settings.get("api_key"):
         settings["doubao_api_key"] = settings["api_key"]
     return settings
+
+
+def save_settings(updates: Dict[str, Any], config_path: str | Path = "config.yaml") -> None:
+    path = Path(config_path)
+    settings: Dict[str, Any] = {}
+    if path.exists():
+        with path.open("r", encoding="utf-8") as handle:
+            data = yaml.safe_load(handle) or {}
+        if isinstance(data, dict):
+            settings.update(data)
+    settings.update(updates)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        yaml.safe_dump(settings, handle, allow_unicode=True, sort_keys=False)

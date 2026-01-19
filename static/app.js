@@ -40,22 +40,40 @@ const elements = {
   imageModelBadge: document.getElementById("image-model-badge")
 };
 
+function ensureSelectOption(select, value) {
+  if (!value) {
+    return;
+  }
+  const exists = Array.from(select.options).some((option) => option.value === value);
+  if (!exists) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value;
+    select.appendChild(option);
+  }
+  select.value = value;
+}
+
 if (window.APP_CONFIG) {
   if (window.APP_CONFIG.apiKey) {
     elements.apiKeyInput.value = window.APP_CONFIG.apiKey;
   }
   if (window.APP_CONFIG.analysisModel) {
-    elements.analysisModelSelect.value = window.APP_CONFIG.analysisModel;
+    ensureSelectOption(elements.analysisModelSelect, window.APP_CONFIG.analysisModel);
   }
   if (window.APP_CONFIG.imageModel) {
-    elements.imageModelSelect.value = window.APP_CONFIG.imageModel;
-    elements.imageModelBadge.textContent = `Model: ${elements.imageModelSelect.options[elements.imageModelSelect.selectedIndex].text}`;
+    ensureSelectOption(elements.imageModelSelect, window.APP_CONFIG.imageModel);
+    if (elements.imageModelBadge) {
+      elements.imageModelBadge.textContent = `Model: ${elements.imageModelSelect.options[elements.imageModelSelect.selectedIndex].text}`;
+    }
   }
 }
 
 elements.imageModelSelect.addEventListener("change", () => {
   const model = elements.imageModelSelect.options[elements.imageModelSelect.selectedIndex].text;
-  elements.imageModelBadge.textContent = `Model: ${model}`;
+  if (elements.imageModelBadge) {
+    elements.imageModelBadge.textContent = `Model: ${model}`;
+  }
 });
 
 elements.fileInput.addEventListener("change", (event) => {

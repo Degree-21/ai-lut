@@ -16,6 +16,9 @@
         {% if current_user %}
           <div class="header-actions">
             <span class="user-badge">你好，{{ current_user|e }}</span>
+            {% if is_admin %}
+              <a class="link-button" href="{{ url_for('admin_config') }}">系统配置</a>
+            {% endif %}
             <a class="link-button" href="{{ url_for('logout') }}">退出</a>
           </div>
         {% endif %}
@@ -128,16 +131,14 @@
 
       <footer class="container footer">
         <p>核心算法: OKLAB 感知均匀匹配 | 直方图分布映射 | 65阶精度</p>
-        <div class="footer-right">
-          <span id="image-model-badge">Model: Gemini 1.5 Flash</span>
-          <span>Target: Rec.709 G2.4</span>
-        </div>
       </footer>
     </div>
 
     <script>
       window.APP_CONFIG = {
-        apiKey: "{{ api_key|e }}"
+        apiKey: "{{ api_key|e }}",
+        analysisModel: "{{ analysis_model|e }}",
+        imageModel: "{{ image_model|e }}"
       };
     </script>
     <script src="{{ url_for('static', filename='app.js') }}"></script>

@@ -31,7 +31,7 @@ from flask import (
 from openai import OpenAI
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from config import load_settings
+from config import load_settings, save_settings
 from user_store import (
     UserExistsError,
     count_users,
@@ -182,6 +182,13 @@ def ensure_admin_user(database_url: str, username: str, password: str) -> None:
     if existing:
         return
     create_user(database_url, username, generate_password_hash(password))
+
+
+def is_admin_user(settings: Dict[str, object], username: str | None) -> bool:
+    admin_username = str(settings.get("admin_username", "")).strip()
+    if not admin_username or not username:
+        return False
+    return username == admin_username
 
 def load_config() -> AppConfig:
     settings = load_settings()
@@ -848,12 +855,56 @@ def create_app() -> Flask:
     @login_required
     def index():
         settings = load_settings()
+        is_admin = is_admin_user(settings, session.get("username"))
         return render_template(
             "index.html",
-            api_key=str(settings.get("api_key", "")),
+            api_key=str(settings.get("api_key", "")) if is_admin else "",
             doubao_api_key=str(settings.get("doubao_api_key", "")),
+            analysis_model=str(settings.get("analysis_model", "gemini-1.5-flash")),
             image_model=str(settings.get("image_model", "gemini-1.5-flash")),
             current_user=session.get("username"),
+            is_admin=is_admin,
+        )
+
+    @app.route("/admin/config", methods=["GET", "POST"])
+    @login_required
+    def admin_config():
+        settings = load_settings()
+        if not is_admin_user(settings, session.get("username")):
+            return "无权限访问。", 403
+
+        error = None
+        message = None
+        if request.method == "POST":
+            analysis_model = request.form.get("analysis_model", "").strip()
+            image_model = request.form.get("image_model", "").strip()
+            api_key = request.form.get("api_key", "").strip()
+            doubao_api_key = request.form.get("doubao_api_key", "").strip()
+            if not analysis_model:
+                error = "解析模型不能为空。"
+            elif not image_model:
+                error = "输出模型不能为空。"
+            else:
+                save_settings(
+                    {
+                        "analysis_model": analysis_model,
+                        "image_model": image_model,
+                        "api_key": api_key,
+                        "doubao_api_key": doubao_api_key,
+                    }
+                )
+                settings = load_settings()
+                message = "系统配置已保存。"
+
+        return render_template(
+            "admin_config.html",
+            analysis_model=str(settings.get("analysis_model", "")),
+            image_model=str(settings.get("image_model", "")),
+            api_key=str(settings.get("api_key", "")),
+            doubao_api_key=str(settings.get("doubao_api_key", "")),
+            current_user=session.get("username"),
+            error=error,
+            message=message,
         )
 
     @app.route("/api/generate", methods=["POST"])
