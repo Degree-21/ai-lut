@@ -9,19 +9,23 @@
   <body>
     <div class="page">
       <header class="container header">
-        <div class="title">
-          <h1>调色灵感专家</h1>
+        <div class="header-row">
+          <div class="title">
+            <h1>调色灵感专家</h1>
+          </div>
+          {% if current_user %}
+            <div class="header-actions">
+              <span class="user-badge">你好，{{ current_user|e }}</span>
+              <span class="user-badge">积分：{{ points_balance }}</span>
+              <a class="link-button" href="{{ url_for('points') }}">积分记录</a>
+              {% if is_admin %}
+                <a class="link-button" href="{{ url_for('admin_config') }}">系统配置</a>
+              {% endif %}
+              <a class="link-button" href="{{ url_for('logout') }}">退出</a>
+            </div>
+          {% endif %}
         </div>
         <p class="subtitle">深度分析场景光影，生成电影级调色参考与 3D LUT</p>
-        {% if current_user %}
-          <div class="header-actions">
-            <span class="user-badge">你好，{{ current_user|e }}</span>
-            {% if is_admin %}
-              <a class="link-button" href="{{ url_for('admin_config') }}">系统配置</a>
-            {% endif %}
-            <a class="link-button" href="{{ url_for('logout') }}">退出</a>
-          </div>
-        {% endif %}
       </header>
 
       <main class="container main">
@@ -131,6 +135,11 @@
 
       <footer class="container footer">
         <p>核心算法: OKLAB 感知均匀匹配 | 直方图分布映射 | 65阶精度</p>
+        {% if icp_record %}
+          <a class="icp-record" href="https://beian.miit.gov.cn" target="_blank" rel="noopener">
+            {{ icp_record }}
+          </a>
+        {% endif %}
       </footer>
     </div>
 

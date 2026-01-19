@@ -17,6 +17,7 @@
         {% if current_user %}
           <div class="header-actions">
             <span class="user-badge">你好，{{ current_user|e }}</span>
+            <a class="link-button" href="{{ url_for('points') }}">积分记录</a>
             <a class="link-button" href="{{ url_for('index') }}">返回首页</a>
             <a class="link-button" href="{{ url_for('logout') }}">退出</a>
           </div>
@@ -77,6 +78,19 @@
             </div>
 
             <div class="field">
+              <label for="register_bonus_points">注册赠送积分</label>
+              <input
+                id="register_bonus_points"
+                name="register_bonus_points"
+                type="number"
+                min="0"
+                class="text-input"
+                value="{{ register_bonus_points|e }}"
+              />
+              <p class="field-hint">新用户注册时自动赠送的积分数量。</p>
+            </div>
+
+            <div class="field">
               <label for="api_key">Gemini API Key</label>
               <div class="input-with-action">
                 <input
@@ -111,6 +125,13 @@
         </section>
       </main>
     </div>
+    {% if icp_record %}
+      <footer class="container footer">
+        <a class="icp-record" href="https://beian.miit.gov.cn" target="_blank" rel="noopener">
+          {{ icp_record }}
+        </a>
+      </footer>
+    {% endif %}
     <script src="{{ url_for('static', filename='auth.js') }}"></script>
   </body>
 </html>

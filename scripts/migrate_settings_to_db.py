@@ -1,12 +1,23 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from config import load_settings
 from user_store import init_db, upsert_settings
 
 
-DB_SETTING_KEYS = ("analysis_model", "image_model", "api_key", "doubao_api_key")
+DB_SETTING_KEYS = (
+    "analysis_model",
+    "image_model",
+    "api_key",
+    "doubao_api_key",
+    "register_bonus_points",
+)
 
 
 def _mask_value(key: str, value: str) -> str:

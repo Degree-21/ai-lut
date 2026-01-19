@@ -26,6 +26,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "session_expire_hours": 12,
     "admin_username": "",
     "admin_password": "",
+    "register_bonus_points": 0,
 }
 
 
@@ -80,6 +81,13 @@ def load_settings(config_path: str | Path = "config.yaml") -> Dict[str, Any]:
     admin_password_env = os.getenv("ADMIN_PASSWORD")
     if admin_password_env:
         settings["admin_password"] = admin_password_env
+
+    register_bonus_env = os.getenv("REGISTER_BONUS_POINTS")
+    if register_bonus_env:
+        try:
+            settings["register_bonus_points"] = int(register_bonus_env)
+        except ValueError:
+            pass
 
     if not settings.get("api_key") and settings.get("doubao_api_key"):
         settings["api_key"] = settings["doubao_api_key"]

@@ -34,11 +34,14 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from config import load_settings
 from user_store import (
     UserExistsError,
+    apply_points_change,
     count_users,
     create_user,
     fetch_user_by_username,
     fetch_settings,
+    get_user_points,
     init_db,
+    list_points_transactions,
     mark_last_login,
     upsert_settings,
 )
@@ -47,7 +50,16 @@ DEBUG_REQUESTS_STATE = False
 MIN_PASSWORD_LENGTH = 8
 MIN_USERNAME_LENGTH = 3
 MAX_USERNAME_LENGTH = 32
-DB_SETTING_KEYS = ("analysis_model", "image_model", "api_key", "doubao_api_key")
+DB_SETTING_KEYS = (
+    "analysis_model",
+    "image_model",
+    "api_key",
+    "doubao_api_key",
+    "register_bonus_points",
+)
+POINTS_REASON_REGISTER = "register_bonus"
+POINTS_SOURCE_REGISTER = "register"
+ICP_RECORD = "闽ICP备2025083568号-1"
 
 
 @dataclass(frozen=True)
@@ -202,6 +214,11 @@ def load_effective_settings(database_url: str) -> Dict[str, object]:
         return settings
     for key, value in db_settings.items():
         settings[key] = value
+    if "register_bonus_points" in settings:
+        try:
+            settings["register_bonus_points"] = int(settings["register_bonus_points"])
+        except (TypeError, ValueError):
+            settings["register_bonus_points"] = 0
     return settings
 
 
@@ -801,6 +818,10 @@ def create_app() -> Flask:
         str(settings.get("admin_password", "")).strip(),
     )
 
+    @app.context_processor
+    def inject_icp():
+        return {"icp_record": ICP_RECORD}
+
     @app.route("/login", methods=["GET", "POST"])
     def login():
         error = None
@@ -850,6 +871,23 @@ def create_app() -> Flask:
                     user_id = create_user(
                         database_url, username, generate_password_hash(password)
                     )
+                    bonus_points = int(
+                        load_effective_settings(database_url).get(
+                            "register_bonus_points", 0
+                        )
+                    )
+                    if bonus_points > 0:
+                        try:
+                            apply_points_change(
+                                database_url,
+                                user_id,
+                                bonus_points,
+                                reason=POINTS_REASON_REGISTER,
+                                source=POINTS_SOURCE_REGISTER,
+                                note="注册赠送积分",
+                            )
+                        except Exception:
+                            pass
                     session.clear()
                     session["user_id"] = user_id
                     session["username"] = username
@@ -871,6 +909,7 @@ def create_app() -> Flask:
     def index():
         settings = load_effective_settings(database_url)
         is_admin = is_admin_user(settings, session.get("username"))
+        points_balance = get_user_points(database_url, session.get("user_id", ""))
         return render_template(
             "index.html",
             api_key=str(settings.get("api_key", "")) if is_admin else "",
@@ -879,6 +918,7 @@ def create_app() -> Flask:
             image_model=str(settings.get("image_model", "gemini-1.5-flash")),
             current_user=session.get("username"),
             is_admin=is_admin,
+            points_balance=points_balance,
         )
 
     @app.route("/admin/config", methods=["GET", "POST"])
@@ -895,11 +935,31 @@ def create_app() -> Flask:
             image_model = request.form.get("image_model", "").strip()
             api_key = request.form.get("api_key", "").strip()
             doubao_api_key = request.form.get("doubao_api_key", "").strip()
+            register_bonus_raw = request.form.get("register_bonus_points", "").strip()
             if not analysis_model:
                 error = "解析模型不能为空。"
             elif not image_model:
                 error = "输出模型不能为空。"
             else:
+                try:
+                    register_bonus_points = int(register_bonus_raw or 0)
+                    if register_bonus_points < 0:
+                        raise ValueError
+                except ValueError:
+                    error = "注册赠送积分需为非负整数。"
+                    register_bonus_points = 0
+                if error:
+                    return render_template(
+                        "admin_config.html",
+                        analysis_model=analysis_model,
+                        image_model=image_model,
+                        api_key=api_key,
+                        doubao_api_key=doubao_api_key,
+                        register_bonus_points=register_bonus_raw,
+                        current_user=session.get("username"),
+                        error=error,
+                        message=message,
+                    )
                 try:
                     upsert_settings(
                         database_url,
@@ -908,6 +968,7 @@ def create_app() -> Flask:
                             "image_model": image_model,
                             "api_key": api_key,
                             "doubao_api_key": doubao_api_key,
+                            "register_bonus_points": str(register_bonus_points),
                         },
                     )
                 except Exception:
@@ -922,9 +983,23 @@ def create_app() -> Flask:
             image_model=str(settings.get("image_model", "")),
             api_key=str(settings.get("api_key", "")),
             doubao_api_key=str(settings.get("doubao_api_key", "")),
+            register_bonus_points=str(settings.get("register_bonus_points", 0)),
             current_user=session.get("username"),
             error=error,
             message=message,
+        )
+
+    @app.route("/points")
+    @login_required
+    def points():
+        user_id = session.get("user_id", "")
+        balance = get_user_points(database_url, user_id)
+        transactions = list_points_transactions(database_url, user_id, limit=100)
+        return render_template(
+            "points.html",
+            current_user=session.get("username"),
+            balance=balance,
+            transactions=transactions,
         )
 
     @app.route("/api/generate", methods=["POST"])

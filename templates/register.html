@@ -74,6 +74,13 @@
         </section>
       </main>
     </div>
+    {% if icp_record %}
+      <footer class="container footer">
+        <a class="icp-record" href="https://beian.miit.gov.cn" target="_blank" rel="noopener">
+          {{ icp_record }}
+        </a>
+      </footer>
+    {% endif %}
     <script src="{{ url_for('static', filename='auth.js') }}"></script>
   </body>
 </html>

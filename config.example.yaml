@@ -16,3 +16,4 @@ allow_register: true
 session_expire_hours: 12
 admin_username: "admin"
 admin_password: "change-me-now"
+register_bonus_points: 100

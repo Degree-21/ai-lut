@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>积分记录 - 调色灵感专家</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="container header">
+        <div class="title">
+          <h1>积分记录</h1>
+        </div>
+        <p class="subtitle">查看积分获取与使用明细</p>
+        {% if current_user %}
+          <div class="header-actions">
+            <span class="user-badge">你好，{{ current_user|e }}</span>
+            <a class="link-button" href="{{ url_for('index') }}">返回首页</a>
+            <a class="link-button" href="{{ url_for('logout') }}">退出</a>
+          </div>
+        {% endif %}
+      </header>
+
+      <main class="container main">
+        <section class="card">
+          <div class="card-title">
+            <span class="icon">💰</span>
+            <h2>当前积分</h2>
+          </div>
+          <div class="points-balance">{{ balance }}</div>
+        </section>
+
+        <section class="card">
+          <div class="card-title">
+            <span class="icon">📒</span>
+            <h2>积分明细</h2>
+          </div>
+          {% if transactions %}
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>时间</th>
+                    <th>变动</th>
+                    <th>余额</th>
+                    <th>原因</th>
+                    <th>来源</th>
+                    <th>备注</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for item in transactions %}
+                    <tr>
+                      <td>{{ item.created_at }}</td>
+                      <td class="{{ 'positive' if item.change_amount >= 0 else 'negative' }}">
+                        {{ '+' if item.change_amount >= 0 else '' }}{{ item.change_amount }}
+                      </td>
+                      <td>{{ item.balance_after }}</td>
+                      <td>{{ item.reason }}</td>
+                      <td>{{ item.source }}</td>
+                      <td>{{ item.note or '-' }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <div class="empty-card">
+              <div class="empty-icon">🧾</div>
+              <h3>暂无记录</h3>
+              <p>积分变动记录会在这里显示。</p>
+            </div>
+          {% endif %}
+        </section>
+      </main>
+    </div>
+    {% if icp_record %}
+      <footer class="container footer">
+        <a class="icp-record" href="https://beian.miit.gov.cn" target="_blank" rel="noopener">
+          {{ icp_record }}
+        </a>
+      </footer>
+    {% endif %}
+  </body>
+</html>
