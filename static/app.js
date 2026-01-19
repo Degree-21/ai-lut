@@ -21,10 +21,6 @@ const elements = {
   uploadArea: document.getElementById("upload-area"),
   uploadPlaceholder: document.querySelector(".upload-placeholder"),
   resetButton: document.getElementById("reset-button"),
-  analysisModelSelect: document.getElementById("analysis-model-select"),
-  imageModelSelect: document.getElementById("image-model-select"),
-  apiKeyInput: document.getElementById("api-key-input"),
-  toggleKey: document.getElementById("toggle-key"),
   lutToggle: document.getElementById("lut-toggle"),
   debugToggle: document.getElementById("debug-toggle"),
   generateButton: document.getElementById("generate-button"),
@@ -36,45 +32,8 @@ const elements = {
   copyAnalysisButton: document.getElementById("copy-analysis"),
   results: document.getElementById("results"),
   errorPanel: document.getElementById("error-panel"),
-  errorMessage: document.getElementById("error-message"),
-  imageModelBadge: document.getElementById("image-model-badge")
+  errorMessage: document.getElementById("error-message")
 };
-
-function ensureSelectOption(select, value) {
-  if (!value) {
-    return;
-  }
-  const exists = Array.from(select.options).some((option) => option.value === value);
-  if (!exists) {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = value;
-    select.appendChild(option);
-  }
-  select.value = value;
-}
-
-if (window.APP_CONFIG) {
-  if (window.APP_CONFIG.apiKey) {
-    elements.apiKeyInput.value = window.APP_CONFIG.apiKey;
-  }
-  if (window.APP_CONFIG.analysisModel) {
-    ensureSelectOption(elements.analysisModelSelect, window.APP_CONFIG.analysisModel);
-  }
-  if (window.APP_CONFIG.imageModel) {
-    ensureSelectOption(elements.imageModelSelect, window.APP_CONFIG.imageModel);
-    if (elements.imageModelBadge) {
-      elements.imageModelBadge.textContent = `Model: ${elements.imageModelSelect.options[elements.imageModelSelect.selectedIndex].text}`;
-    }
-  }
-}
-
-elements.imageModelSelect.addEventListener("change", () => {
-  const model = elements.imageModelSelect.options[elements.imageModelSelect.selectedIndex].text;
-  if (elements.imageModelBadge) {
-    elements.imageModelBadge.textContent = `Model: ${model}`;
-  }
-});
 
 elements.fileInput.addEventListener("change", (event) => {
   const file = event.target.files[0];
@@ -104,12 +63,6 @@ elements.resetButton.addEventListener("click", () => {
   elements.resetButton.classList.add("hidden");
   elements.uploadPlaceholder.classList.remove("hidden");
   clearResults();
-});
-
-elements.toggleKey.addEventListener("click", () => {
-  const isPassword = elements.apiKeyInput.type === "password";
-  elements.apiKeyInput.type = isPassword ? "text" : "password";
-  elements.toggleKey.textContent = isPassword ? "🙈" : "👁️";
 });
 
 elements.copyAnalysisButton.addEventListener("click", async () => {
@@ -250,10 +203,6 @@ function renderResults() {
 async function generateStyle(style, analysis) {
   const formData = new FormData();
   formData.append("image", state.file);
-  formData.append("api_key", elements.apiKeyInput.value.trim());
-  formData.append("doubao_api_key", elements.apiKeyInput.value.trim());
-  formData.append("analysis_model", elements.analysisModelSelect.value);
-  formData.append("image_model", elements.imageModelSelect.value);
   formData.append("analysis", analysis);
   formData.append("generate_lut", elements.lutToggle.checked ? "1" : "0");
   formData.append("debug_requests", elements.debugToggle.checked ? "1" : "0");
@@ -277,9 +226,6 @@ async function generateStyle(style, analysis) {
 async function streamAnalysis() {
   const formData = new FormData();
   formData.append("image", state.file);
-  formData.append("api_key", elements.apiKeyInput.value.trim());
-  formData.append("doubao_api_key", elements.apiKeyInput.value.trim());
-  formData.append("analysis_model", elements.analysisModelSelect.value);
   formData.append("debug_requests", elements.debugToggle.checked ? "1" : "0");
 
   const response = await fetch("/api/analyze_stream", {

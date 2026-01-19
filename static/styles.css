@@ -696,6 +696,12 @@ body {
   font-weight: 700;
 }
 
+.analysis-preview {
+  max-width: 320px;
+  white-space: normal;
+  color: #475569;
+}
+
 .empty-state {
   grid-template-columns: 1fr;
 }

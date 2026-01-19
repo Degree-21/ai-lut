@@ -99,6 +99,19 @@ def init_db(database_url: str) -> None:
         conn = await _open_conn(database_url)
         try:
             async with conn.cursor() as cur:
+                async def _table_exists(table: str) -> bool:
+                    await cur.execute(
+                        """
+                        SELECT COUNT(*)
+                        FROM INFORMATION_SCHEMA.TABLES
+                        WHERE TABLE_SCHEMA = DATABASE()
+                          AND TABLE_NAME = %s
+                        """,
+                        (table,),
+                    )
+                    row = await cur.fetchone()
+                    return bool(row and int(row[0]) > 0)
+
                 async def _column_exists(table: str, column: str) -> bool:
                     await cur.execute(
                         """
@@ -113,24 +126,62 @@ def init_db(database_url: str) -> None:
                     row = await cur.fetchone()
                     return bool(row and int(row[0]) > 0)
 
-                async def _index_exists(table: str, index: str) -> bool:
+                async def _column_type(table: str, column: str) -> str | None:
                     await cur.execute(
                         """
-                        SELECT COUNT(*)
-                        FROM INFORMATION_SCHEMA.STATISTICS
+                        SELECT DATA_TYPE
+                        FROM INFORMATION_SCHEMA.COLUMNS
                         WHERE TABLE_SCHEMA = DATABASE()
                           AND TABLE_NAME = %s
-                          AND INDEX_NAME = %s
+                          AND COLUMN_NAME = %s
                         """,
-                        (table, index),
+                        (table, column),
                     )
                     row = await cur.fetchone()
-                    return bool(row and int(row[0]) > 0)
+                    if not row:
+                        return None
+                    return str(row[0]).lower()
+
+                def _is_int_type(value: str | None) -> bool:
+                    return value in {"int", "bigint", "mediumint", "smallint", "tinyint"}
+
+                async def _guard_schema() -> None:
+                    if await _table_exists("users"):
+                        id_type = await _column_type("users", "id")
+                        has_uuid = await _column_exists("users", "user_uuid")
+                        if not _is_int_type(id_type) or not has_uuid:
+                            raise RuntimeError(
+                                "检测到旧用户表结构。由于无需迁移，请删除旧表后重启。"
+                            )
+
+                    tables = [
+                        ("app_settings", None),
+                        ("user_points", "user_id"),
+                        ("points_transactions", "user_id"),
+                        ("analysis_records", "user_id"),
+                    ]
+                    for table, user_col in tables:
+                        if not await _table_exists(table):
+                            continue
+                        id_type = await _column_type(table, "id")
+                        if not _is_int_type(id_type):
+                            raise RuntimeError(
+                                f"检测到旧表 {table} 结构。由于无需迁移，请删除旧表后重启。"
+                            )
+                        if user_col:
+                            user_type = await _column_type(table, user_col)
+                            if not _is_int_type(user_type):
+                                raise RuntimeError(
+                                    f"检测到旧表 {table} 结构。由于无需迁移，请删除旧表后重启。"
+                                )
+
+                await _guard_schema()
 
                 await cur.execute(
                     """
                     CREATE TABLE IF NOT EXISTS users (
-                        id CHAR(32) PRIMARY KEY,
+                        id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        user_uuid CHAR(32) NOT NULL UNIQUE,
                         username VARCHAR(32) NOT NULL UNIQUE,
                         password_hash VARCHAR(255) NOT NULL,
                         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -156,7 +207,7 @@ def init_db(database_url: str) -> None:
                     """
                     CREATE TABLE IF NOT EXISTS user_points (
                         id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-                        user_id CHAR(32) NOT NULL UNIQUE,
+                        user_id BIGINT NOT NULL UNIQUE,
                         balance INT NOT NULL DEFAULT 0,
                         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -171,7 +222,7 @@ def init_db(database_url: str) -> None:
                     """
                     CREATE TABLE IF NOT EXISTS points_transactions (
                         id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-                        user_id CHAR(32) NOT NULL,
+                        user_id BIGINT NOT NULL,
                         change_amount INT NOT NULL,
                         balance_after INT NOT NULL,
                         reason VARCHAR(64) NOT NULL,
@@ -190,89 +241,43 @@ def init_db(database_url: str) -> None:
                 )
                 await cur.execute(
                     """
-                    SELECT COUNT(*) AS cnt
-                    FROM INFORMATION_SCHEMA.COLUMNS
-                    WHERE TABLE_SCHEMA = DATABASE()
-                      AND TABLE_NAME = 'app_settings'
-                      AND COLUMN_NAME = 'id'
+                    CREATE TABLE IF NOT EXISTS analysis_records (
+                        id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        user_id BIGINT NOT NULL,
+                        run_id VARCHAR(64) NOT NULL UNIQUE,
+                        style_ids TEXT NOT NULL,
+                        cost INT NOT NULL,
+                        source_filename VARCHAR(255) NOT NULL,
+                        source_url TEXT NULL,
+                        analysis_text MEDIUMTEXT NOT NULL,
+                        analysis_url TEXT NULL,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                            ON UPDATE CURRENT_TIMESTAMP,
+                        INDEX idx_analysis_records_user (user_id),
+                        INDEX idx_analysis_records_created (created_at),
+                        CONSTRAINT fk_analysis_records_user
+                            FOREIGN KEY (user_id) REFERENCES users(id)
+                            ON DELETE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
                     """
                 )
-                row = await cur.fetchone()
-                needs_migration = bool(row and int(row[0]) == 0)
-                if needs_migration:
-                    await cur.execute("ALTER TABLE app_settings DROP PRIMARY KEY")
-                    await cur.execute(
-                        "ALTER TABLE app_settings "
-                        "ADD COLUMN id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY FIRST"
-                    )
-                    await cur.execute(
-                        "ALTER TABLE app_settings "
-                        "ADD UNIQUE KEY uniq_app_settings_name (name)"
-                    )
-                if not await _column_exists("app_settings", "created_at"):
-                    await cur.execute(
-                        "ALTER TABLE app_settings "
-                        "ADD COLUMN created_at DATETIME NOT NULL "
-                        "DEFAULT CURRENT_TIMESTAMP"
-                    )
-                if not await _column_exists("app_settings", "updated_at"):
-                    await cur.execute(
-                        "ALTER TABLE app_settings "
-                        "ADD COLUMN updated_at DATETIME NOT NULL "
-                        "DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
-                    )
-
-                if not await _column_exists("users", "updated_at"):
-                    await cur.execute(
-                        "ALTER TABLE users "
-                        "ADD COLUMN updated_at DATETIME NOT NULL "
-                        "DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP "
-                        "AFTER created_at"
-                    )
-
-                if not await _column_exists("user_points", "id"):
-                    if not await _index_exists("user_points", "uniq_user_points_user"):
-                        await cur.execute(
-                            "ALTER TABLE user_points "
-                            "ADD UNIQUE KEY uniq_user_points_user (user_id)"
-                        )
-                    await cur.execute("ALTER TABLE user_points DROP PRIMARY KEY")
-                    await cur.execute(
-                        "ALTER TABLE user_points "
-                        "ADD COLUMN id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY FIRST"
-                    )
-                if not await _column_exists("user_points", "created_at"):
-                    await cur.execute(
-                        "ALTER TABLE user_points "
-                        "ADD COLUMN created_at DATETIME NOT NULL "
-                        "DEFAULT CURRENT_TIMESTAMP"
-                    )
-                if not await _column_exists("user_points", "updated_at"):
-                    await cur.execute(
-                        "ALTER TABLE user_points "
-                        "ADD COLUMN updated_at DATETIME NOT NULL "
-                        "DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
-                    )
-
-                if not await _column_exists("points_transactions", "created_at"):
-                    await cur.execute(
-                        "ALTER TABLE points_transactions "
-                        "ADD COLUMN created_at DATETIME NOT NULL "
-                        "DEFAULT CURRENT_TIMESTAMP"
-                    )
-                if not await _column_exists("points_transactions", "updated_at"):
-                    await cur.execute(
-                        "ALTER TABLE points_transactions "
-                        "ADD COLUMN updated_at DATETIME NOT NULL "
-                        "DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
-                    )
+                await cur.execute(
+                    """
+                    INSERT INTO user_points (user_id, balance)
+                    SELECT u.id, 0
+                    FROM users u
+                    LEFT JOIN user_points up ON up.user_id = u.id
+                    WHERE up.user_id IS NULL
+                    """
+                )
         finally:
             conn.close()
 
     _run(_init())
 
 
-def fetch_user_by_username(database_url: str, username: str) -> Optional[Dict[str, str]]:
+def fetch_user_by_username(database_url: str, username: str) -> Optional[Dict[str, object]]:
     return _run(
         _execute(
             database_url,
@@ -283,17 +288,20 @@ def fetch_user_by_username(database_url: str, username: str) -> Optional[Dict[st
     )
 
 
-def create_user(database_url: str, username: str, password_hash: str) -> str:
-    user_id = uuid.uuid4().hex
+def create_user(database_url: str, username: str, password_hash: str) -> int:
+    user_uuid = uuid.uuid4().hex
+    user_id = 0
 
     async def _create() -> None:
+        nonlocal user_id
         conn = await _open_conn(database_url)
         try:
             async with conn.cursor() as cur:
                 await cur.execute(
-                    "INSERT INTO users (id, username, password_hash) VALUES (%s, %s, %s)",
-                    (user_id, username, password_hash),
+                    "INSERT INTO users (user_uuid, username, password_hash) VALUES (%s, %s, %s)",
+                    (user_uuid, username, password_hash),
                 )
+                user_id = int(cur.lastrowid)
                 await cur.execute(
                     "INSERT INTO user_points (user_id, balance) VALUES (%s, %s)",
                     (user_id, 0),
@@ -314,7 +322,7 @@ def count_users(database_url: str) -> int:
     return _run(_execute_scalar(database_url, "SELECT COUNT(*) FROM users"))
 
 
-def mark_last_login(database_url: str, user_id: str) -> None:
+def mark_last_login(database_url: str, user_id: int) -> None:
     _run(
         _execute(
             database_url,
@@ -357,7 +365,15 @@ def upsert_settings(database_url: str, settings: Dict[str, str]) -> None:
     _run(_upsert())
 
 
-def get_user_points(database_url: str, user_id: str) -> int:
+def get_user_points(database_url: str, user_id: int) -> int:
+    _run(
+        _execute(
+            database_url,
+            "INSERT INTO user_points (user_id, balance) "
+            "VALUES (%s, %s) ON DUPLICATE KEY UPDATE balance = balance",
+            (user_id, 0),
+        )
+    )
     row = _run(
         _execute(
             database_url,
@@ -372,7 +388,7 @@ def get_user_points(database_url: str, user_id: str) -> int:
 
 
 def list_points_transactions(
-    database_url: str, user_id: str, limit: int = 50
+    database_url: str, user_id: int, limit: int = 50
 ) -> List[Dict[str, object]]:
     safe_limit = max(1, min(int(limit), 200))
     query = (
@@ -385,7 +401,7 @@ def list_points_transactions(
 
 def apply_points_change(
     database_url: str,
-    user_id: str,
+    user_id: int,
     change_amount: int,
     *,
     reason: str,
@@ -432,3 +448,50 @@ def apply_points_change(
             conn.close()
 
     return _run(_apply())
+
+
+def create_analysis_record(
+    database_url: str,
+    *,
+    user_id: int,
+    run_id: str,
+    style_ids: List[str],
+    cost: int,
+    source_filename: str,
+    source_url: str,
+    analysis_text: str,
+    analysis_url: str,
+) -> None:
+    _run(
+        _execute(
+            database_url,
+            """
+            INSERT INTO analysis_records
+                (user_id, run_id, style_ids, cost, source_filename, source_url, analysis_text, analysis_url)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                user_id,
+                run_id,
+                ",".join(style_ids),
+                cost,
+                source_filename,
+                source_url,
+                analysis_text,
+                analysis_url,
+            ),
+        )
+    )
+
+
+def list_analysis_records(
+    database_url: str, user_id: int, limit: int = 50
+) -> List[Dict[str, object]]:
+    safe_limit = max(1, min(int(limit), 200))
+    query = (
+        "SELECT id, run_id, style_ids, cost, source_filename, source_url, "
+        "analysis_text, analysis_url, created_at "
+        "FROM analysis_records WHERE user_id = %s "
+        "ORDER BY id DESC LIMIT %s"
+    )
+    return _run(_fetch_all(database_url, query, (user_id, safe_limit)))

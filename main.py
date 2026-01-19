@@ -37,10 +37,12 @@ from user_store import (
     apply_points_change,
     count_users,
     create_user,
+    create_analysis_record,
     fetch_user_by_username,
     fetch_settings,
     get_user_points,
     init_db,
+    list_analysis_records,
     list_points_transactions,
     mark_last_login,
     upsert_settings,
@@ -185,6 +187,14 @@ def login_required(view):
     return wrapped
 
 
+def get_session_user_id() -> int | None:
+    value = session.get("user_id")
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def validate_registration(username: str, password: str, confirm: str) -> str | None:
     if not username:
         return "请输入用户名。"
@@ -231,6 +241,16 @@ def load_effective_settings(database_url: str) -> Dict[str, object]:
         except (TypeError, ValueError):
             settings["register_bonus_points"] = 0
     return settings
+
+
+def extension_from_mime(mime_type: str) -> str:
+    if mime_type == "image/jpeg":
+        return ".jpg"
+    if mime_type == "image/webp":
+        return ".webp"
+    if mime_type == "image/png":
+        return ".png"
+    return ""
 
 
 def load_qiniu_config(settings: Dict[str, object]) -> QiniuConfig | None:
@@ -963,7 +983,8 @@ def create_app() -> Flask:
     def index():
         settings = load_effective_settings(database_url)
         is_admin = is_admin_user(settings, session.get("username"))
-        points_balance = get_user_points(database_url, session.get("user_id", ""))
+        user_id = get_session_user_id()
+        points_balance = get_user_points(database_url, user_id) if user_id else 0
         return render_template(
             "index.html",
             api_key=str(settings.get("api_key", "")) if is_admin else "",
@@ -1046,9 +1067,11 @@ def create_app() -> Flask:
     @app.route("/points")
     @login_required
     def points():
-        user_id = session.get("user_id", "")
-        balance = get_user_points(database_url, user_id)
-        transactions = list_points_transactions(database_url, user_id, limit=100)
+        user_id = get_session_user_id()
+        balance = get_user_points(database_url, user_id) if user_id else 0
+        transactions = (
+            list_points_transactions(database_url, user_id, limit=100) if user_id else []
+        )
         return render_template(
             "points.html",
             current_user=session.get("username"),
@@ -1056,28 +1079,31 @@ def create_app() -> Flask:
             transactions=transactions,
         )
 
+    @app.route("/history")
+    @login_required
+    def history():
+        user_id = get_session_user_id()
+        records = list_analysis_records(database_url, user_id, limit=50) if user_id else []
+        return render_template(
+            "history.html",
+            current_user=session.get("username"),
+            records=records,
+        )
+
     @app.route("/api/generate", methods=["POST"])
     @login_required
     def api_generate():
         require_dependencies()
         settings = load_effective_settings(database_url)
-        api_key = request.form.get("api_key", "").strip() or str(
-            settings.get("api_key", "")
-        )
-        doubao_api_key = request.form.get("doubao_api_key", "").strip() or str(
-            settings.get("doubao_api_key", "")
-        )
+        api_key = str(settings.get("api_key", ""))
+        doubao_api_key = str(settings.get("doubao_api_key", ""))
         if api_key and not doubao_api_key:
             doubao_api_key = api_key
         if doubao_api_key and not api_key:
             api_key = doubao_api_key
         analysis_override = request.form.get("analysis", "").strip()
-        analysis_model = request.form.get("analysis_model", "").strip() or str(
-            settings.get("analysis_model", "gemini-1.5-flash")
-        )
-        image_model = request.form.get("image_model", "").strip() or str(
-            settings.get("image_model", "gemini-1.5-flash")
-        )
+        analysis_model = str(settings.get("analysis_model", "gemini-1.5-flash"))
+        image_model = str(settings.get("image_model", "gemini-1.5-flash"))
         if (
                 not api_key
                 and not analysis_model.startswith("doubao-")
@@ -1115,7 +1141,7 @@ def create_app() -> Flask:
             style_ids = [style.id for style in STYLE_PRESETS]
 
         run_id = f"{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
-        user_id = session.get("user_id", "")
+        user_id = get_session_user_id()
         if not user_id:
             return jsonify({"error": "未登录，请先登录。"}), 401
         cost = max(1, len(style_ids))
@@ -1134,6 +1160,7 @@ def create_app() -> Flask:
             return jsonify({"error": "积分扣减失败，请稍后重试。"}), 500
         base_out_dir = Path(settings.get("out_dir", "outputs"))
         out_dir = base_out_dir / run_id
+        out_dir.mkdir(parents=True, exist_ok=True)
 
         config = AppConfig(
             image_path=Path(settings.get("image_path", "input.png")),
@@ -1151,6 +1178,14 @@ def create_app() -> Flask:
         )
 
         mime_type = image_file.mimetype or "image/png"
+        original_suffix = Path(image_file.filename or "").suffix.lower()
+        if original_suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
+            original_suffix = extension_from_mime(mime_type) or ".png"
+        if original_suffix == ".jpeg":
+            original_suffix = ".jpg"
+        source_filename = f"source{original_suffix}"
+        source_path = out_dir / source_filename
+        source_path.write_bytes(image_bytes)
         image_b64 = base64.b64encode(image_bytes).decode("ascii")
         source_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
@@ -1197,6 +1232,27 @@ def create_app() -> Flask:
                     pass
                 return jsonify({"error": str(exc)}), 500
 
+        analysis_url = uploaded_files.get("analysis.txt")
+        if not analysis_url:
+            analysis_url = f"/api/download/{out_dir.name}/analysis.txt"
+        source_url = uploaded_files.get(source_filename)
+        if not source_url:
+            source_url = f"/api/download/{out_dir.name}/{source_filename}"
+        try:
+            create_analysis_record(
+                database_url,
+                user_id=user_id,
+                run_id=run_id,
+                style_ids=style_ids,
+                cost=cost,
+                source_filename=source_filename,
+                source_url=source_url,
+                analysis_text=scene_description,
+                analysis_url=analysis_url,
+            )
+        except Exception:
+            pass
+
         payload_results = []
         for item in results:
             image_bytes = item["image_bytes"]
@@ -1222,7 +1278,8 @@ def create_app() -> Flask:
         return jsonify(
             {
                 "analysis": scene_description,
-                "analysis_url": uploaded_files.get("analysis.txt"),
+                "analysis_url": analysis_url,
+                "source_url": source_url,
                 "results": payload_results,
                 "run_id": out_dir.name,
             }
@@ -1233,19 +1290,13 @@ def create_app() -> Flask:
     def api_analyze_stream():
         require_dependencies()
         settings = load_effective_settings(database_url)
-        api_key = request.form.get("api_key", "").strip() or str(
-            settings.get("api_key", "")
-        )
-        doubao_api_key = request.form.get("doubao_api_key", "").strip() or str(
-            settings.get("doubao_api_key", "")
-        )
+        api_key = str(settings.get("api_key", ""))
+        doubao_api_key = str(settings.get("doubao_api_key", ""))
         if api_key and not doubao_api_key:
             doubao_api_key = api_key
         if doubao_api_key and not api_key:
             api_key = doubao_api_key
-        analysis_model = request.form.get("analysis_model", "").strip() or str(
-            settings.get("analysis_model", "gemini-1.5-flash")
-        )
+        analysis_model = str(settings.get("analysis_model", "gemini-1.5-flash"))
         if not api_key and not analysis_model.startswith("doubao-"):
             return jsonify({"error": "未提供 API Key，请先填写。"}), 400
         if not doubao_api_key and analysis_model.startswith("doubao-"):
@@ -1323,6 +1374,7 @@ def main() -> None:
         app = create_app()
         host = os.getenv("HOST", "127.0.0.1")
         port = int(os.getenv("PORT", "7860"))
+
         app.run(host=host, port=port, debug=False)
 
 

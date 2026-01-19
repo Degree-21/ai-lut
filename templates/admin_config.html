@@ -18,6 +18,7 @@
           <div class="header-actions">
             <span class="user-badge">你好，{{ current_user|e }}</span>
             <a class="link-button" href="{{ url_for('points') }}">积分记录</a>
+            <a class="link-button" href="{{ url_for('history') }}">解析记录</a>
             <a class="link-button" href="{{ url_for('index') }}">返回首页</a>
             <a class="link-button" href="{{ url_for('logout') }}">退出</a>
           </div>

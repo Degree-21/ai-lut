@@ -18,6 +18,7 @@
               <span class="user-badge">你好，{{ current_user|e }}</span>
               <span class="user-badge">积分：{{ points_balance }}</span>
               <a class="link-button" href="{{ url_for('points') }}">积分记录</a>
+              <a class="link-button" href="{{ url_for('history') }}">解析记录</a>
               {% if is_admin %}
                 <a class="link-button" href="{{ url_for('admin_config') }}">系统配置</a>
               {% endif %}
@@ -53,30 +54,6 @@
                 </div>
                 <img id="preview-image" class="hidden" alt="预览图" />
                 <button id="reset-button" class="ghost-button hidden" type="button">重新上传</button>
-              </div>
-
-              <div class="field">
-                <label for="analysis-model-select">分析模型</label>
-                <select id="analysis-model-select" class="select-input">
-                  <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
-                  <option value="doubao-1.5-vision-pro-250328" selected>Doubao Vision Pro</option>
-                </select>
-              </div>
-
-              <div class="field">
-                <label for="image-model-select">生成模型</label>
-                <select id="image-model-select" class="select-input">
-                  <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
-                  <option value="doubao-seedream-4-0-250828" selected>Doubao Seedream 4.0</option>
-                </select>
-              </div>
-
-              <div class="field" id="api-key-field">
-                <label>API Key</label>
-                <div class="api-input">
-                  <input id="api-key-input" type="password" placeholder="请输入 API Key" />
-                  <button id="toggle-key" class="icon-button" type="button">👁️</button>
-                </div>
               </div>
 
               <div class="field-row">
@@ -143,13 +120,6 @@
       </footer>
     </div>
 
-    <script>
-      window.APP_CONFIG = {
-        apiKey: "{{ api_key|e }}",
-        analysisModel: "{{ analysis_model|e }}",
-        imageModel: "{{ image_model|e }}"
-      };
-    </script>
     <script src="{{ url_for('static', filename='app.js') }}"></script>
   </body>
 </html>

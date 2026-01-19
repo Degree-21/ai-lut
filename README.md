@@ -26,6 +26,14 @@ python main.py
 ## 数据库规范
 - 所有表必须包含 `id` 主键列，以及 `created_at` / `updated_at` 时间戳列。
 - `updated_at` 需要开启自动更新时间（`ON UPDATE CURRENT_TIMESTAMP`）。
+- 若从旧版本（用户表 `id` 为字符串）升级，请直接清空表后重启：
+```sql
+DROP TABLE IF EXISTS app_settings;
+DROP TABLE IF EXISTS analysis_records;
+DROP TABLE IF EXISTS points_transactions;
+DROP TABLE IF EXISTS user_points;
+DROP TABLE IF EXISTS users;
+```
 
 ## 系统配置存储
 - 系统配置（模型、Key、注册赠送积分）默认写入数据库 `app_settings` 表。
