@@ -59,6 +59,9 @@ DB_SETTING_KEYS = (
 )
 POINTS_REASON_REGISTER = "register_bonus"
 POINTS_SOURCE_REGISTER = "register"
+POINTS_REASON_FILTER = "filter_use"
+POINTS_SOURCE_FILTER = "generate"
+POINTS_REASON_REFUND = "filter_refund"
 ICP_RECORD = "闽ICP备2025083568号-1"
 
 
@@ -136,6 +139,14 @@ class AppConfig:
     lut_size: int
     retries: int
     debug_requests: bool
+
+
+@dataclass(frozen=True)
+class QiniuConfig:
+    access_key: str
+    secret_key: str
+    bucket: str
+    domain: str
 
 
 def env_flag(name: str, default: str = "0") -> bool:
@@ -220,6 +231,49 @@ def load_effective_settings(database_url: str) -> Dict[str, object]:
         except (TypeError, ValueError):
             settings["register_bonus_points"] = 0
     return settings
+
+
+def load_qiniu_config(settings: Dict[str, object]) -> QiniuConfig | None:
+    access_key = str(settings.get("qiniu_access_key", "")).strip()
+    secret_key = str(settings.get("qiniu_secret_key", "")).strip()
+    bucket = str(settings.get("qiniu_bucket", "")).strip()
+    domain = str(settings.get("qiniu_domain", "")).strip()
+    if not access_key or not secret_key or not bucket:
+        return None
+    if domain and not domain.startswith("http"):
+        domain = f"https://{domain}"
+    domain = domain.rstrip("/")
+    if not domain:
+        return None
+    return QiniuConfig(
+        access_key=access_key,
+        secret_key=secret_key,
+        bucket=bucket,
+        domain=domain,
+    )
+
+
+def upload_to_qiniu(config: QiniuConfig, file_path: Path, key: str) -> str:
+    try:
+        from qiniu import Auth, put_file
+    except Exception as exc:
+        raise RuntimeError("缺少七牛 SDK，请先安装 requirements.txt。") from exc
+    auth = Auth(config.access_key, config.secret_key)
+    token = auth.upload_token(config.bucket, key)
+    ret, info = put_file(token, key, str(file_path))
+    if info.status_code != 200:
+        raise RuntimeError(f"七牛上传失败: {info.status_code}")
+    return f"{config.domain}/{key}"
+
+
+def upload_run_outputs(out_dir: Path, run_id: str, config: QiniuConfig) -> Dict[str, str]:
+    uploads: Dict[str, str] = {}
+    for path in sorted(out_dir.iterdir()):
+        if not path.is_file():
+            continue
+        key = f"{run_id}/{path.name}"
+        uploads[path.name] = upload_to_qiniu(config, path, key)
+    return uploads
 
 
 def load_config() -> AppConfig:
@@ -1061,6 +1115,23 @@ def create_app() -> Flask:
             style_ids = [style.id for style in STYLE_PRESETS]
 
         run_id = f"{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
+        user_id = session.get("user_id", "")
+        if not user_id:
+            return jsonify({"error": "未登录，请先登录。"}), 401
+        cost = max(1, len(style_ids))
+        try:
+            apply_points_change(
+                database_url,
+                user_id,
+                -cost,
+                reason=POINTS_REASON_FILTER,
+                source=POINTS_SOURCE_FILTER,
+                note=f"styles={','.join(style_ids)} run_id={run_id}",
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception:
+            return jsonify({"error": "积分扣减失败，请稍后重试。"}), 500
         base_out_dir = Path(settings.get("out_dir", "outputs"))
         out_dir = base_out_dir / run_id
 
@@ -1094,20 +1165,56 @@ def create_app() -> Flask:
                 debug_requests=debug_requests,
             )
         except Exception as exc:
+            try:
+                apply_points_change(
+                    database_url,
+                    user_id,
+                    cost,
+                    reason=POINTS_REASON_REFUND,
+                    source=POINTS_SOURCE_FILTER,
+                    note=f"styles={','.join(style_ids)} run_id={run_id}",
+                )
+            except Exception:
+                pass
             return jsonify({"error": str(exc)}), 400
+
+        qiniu_config = load_qiniu_config(settings)
+        uploaded_files: Dict[str, str] = {}
+        if qiniu_config:
+            try:
+                uploaded_files = upload_run_outputs(out_dir, run_id, qiniu_config)
+            except Exception as exc:
+                try:
+                    apply_points_change(
+                        database_url,
+                        user_id,
+                        cost,
+                        reason=POINTS_REASON_REFUND,
+                        source=POINTS_SOURCE_FILTER,
+                        note=f"upload_failed run_id={run_id}",
+                    )
+                except Exception:
+                    pass
+                return jsonify({"error": str(exc)}), 500
 
         payload_results = []
         for item in results:
             image_bytes = item["image_bytes"]
             image_base64 = base64.b64encode(image_bytes).decode("ascii")
             lut_filename = item.get("lut_filename")
-            lut_url = f"/api/download/{out_dir.name}/{lut_filename}" if lut_filename else None
+            lut_url = None
+            if lut_filename:
+                lut_url = uploaded_files.get(lut_filename)
+                if not lut_url:
+                    lut_url = f"/api/download/{out_dir.name}/{lut_filename}"
+            image_filename = f"ref_{item['id']}.png"
             payload_results.append(
                 {
                     "id": item["id"],
                     "name": item["name"],
                     "description": item["description"],
                     "image": f"data:image/png;base64,{image_base64}",
+                    "image_url": uploaded_files.get(image_filename),
                     "lut_url": lut_url,
                 }
             )
@@ -1115,6 +1222,7 @@ def create_app() -> Flask:
         return jsonify(
             {
                 "analysis": scene_description,
+                "analysis_url": uploaded_files.get("analysis.txt"),
                 "results": payload_results,
                 "run_id": out_dir.name,
             }

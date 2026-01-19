@@ -17,3 +17,7 @@ session_expire_hours: 12
 admin_username: "admin"
 admin_password: "change-me-now"
 register_bonus_points: 100
+qiniu_access_key: ""
+qiniu_secret_key: ""
+qiniu_bucket: "ai-lut"
+qiniu_domain: "https://qn.3xx3x.cn"

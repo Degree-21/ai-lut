@@ -30,6 +30,14 @@ python main.py
 ## 系统配置存储
 - 系统配置（模型、Key、注册赠送积分）默认写入数据库 `app_settings` 表。
 
+## 七牛云存储
+- 所有生成文件（分析文本、参考图、LUT）可上传到七牛公有空间。
+- 配置项（`config.yaml` 或环境变量）：
+  - `qiniu_access_key` / `QINIU_ACCESS_KEY`
+  - `qiniu_secret_key` / `QINIU_SECRET_KEY`
+  - `qiniu_bucket` / `QINIU_BUCKET`
+  - `qiniu_domain` / `QINIU_DOMAIN`（示例：`https://qn.3xx3x.cn`）
+
 ## CLI 模式
 ```bash
 CLI_MODE=1 python main.py

@@ -27,6 +27,10 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "admin_username": "",
     "admin_password": "",
     "register_bonus_points": 0,
+    "qiniu_access_key": "",
+    "qiniu_secret_key": "",
+    "qiniu_bucket": "",
+    "qiniu_domain": "https://qn.3xx3x.cn",
 }
 
 
@@ -88,6 +92,19 @@ def load_settings(config_path: str | Path = "config.yaml") -> Dict[str, Any]:
             settings["register_bonus_points"] = int(register_bonus_env)
         except ValueError:
             pass
+
+    qiniu_access_env = os.getenv("QINIU_ACCESS_KEY")
+    if qiniu_access_env:
+        settings["qiniu_access_key"] = qiniu_access_env
+    qiniu_secret_env = os.getenv("QINIU_SECRET_KEY")
+    if qiniu_secret_env:
+        settings["qiniu_secret_key"] = qiniu_secret_env
+    qiniu_bucket_env = os.getenv("QINIU_BUCKET")
+    if qiniu_bucket_env:
+        settings["qiniu_bucket"] = qiniu_bucket_env
+    qiniu_domain_env = os.getenv("QINIU_DOMAIN")
+    if qiniu_domain_env:
+        settings["qiniu_domain"] = qiniu_domain_env
 
     if not settings.get("api_key") and settings.get("doubao_api_key"):
         settings["api_key"] = settings["doubao_api_key"]
