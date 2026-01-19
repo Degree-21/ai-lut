@@ -24,6 +24,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "secret_key": "",
     "allow_register": True,
     "session_expire_hours": 12,
+    "admin_username": "",
+    "admin_password": "",
 }
 
 
@@ -70,6 +72,14 @@ def load_settings(config_path: str | Path = "config.yaml") -> Dict[str, Any]:
             settings["session_expire_hours"] = int(session_expire_env)
         except ValueError:
             pass
+
+    admin_username_env = os.getenv("ADMIN_USERNAME")
+    if admin_username_env:
+        settings["admin_username"] = admin_username_env
+
+    admin_password_env = os.getenv("ADMIN_PASSWORD")
+    if admin_password_env:
+        settings["admin_password"] = admin_password_env
 
     if not settings.get("api_key") and settings.get("doubao_api_key"):
         settings["api_key"] = settings["doubao_api_key"]

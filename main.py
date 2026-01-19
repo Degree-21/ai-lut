@@ -172,6 +172,17 @@ def validate_registration(username: str, password: str, confirm: str) -> str | N
         return "两次输入的密码不一致。"
     return None
 
+
+def ensure_admin_user(database_url: str, username: str, password: str) -> None:
+    if not username or not password:
+        return
+    if len(password) < MIN_PASSWORD_LENGTH:
+        raise RuntimeError(f"管理员密码至少 {MIN_PASSWORD_LENGTH} 位。")
+    existing = fetch_user_by_username(database_url, username)
+    if existing:
+        return
+    create_user(database_url, username, generate_password_hash(password))
+
 def load_config() -> AppConfig:
     settings = load_settings()
     image_path = Path(settings.get("image_path", "input.png"))
@@ -762,6 +773,11 @@ def create_app() -> Flask:
     session_hours = int(settings.get("session_expire_hours", 12))
     app.permanent_session_lifetime = timedelta(hours=session_hours)
     init_db(database_url)
+    ensure_admin_user(
+        database_url,
+        str(settings.get("admin_username", "")).strip(),
+        str(settings.get("admin_password", "")).strip(),
+    )
 
     @app.route("/login", methods=["GET", "POST"])
     def login():

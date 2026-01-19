@@ -6,7 +6,7 @@
     <title>登录 - 调色灵感专家</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
   </head>
-  <body>
+  <body class="auth-page">
     <div class="page">
       <header class="container header">
         <div class="title">
@@ -27,31 +27,51 @@
         {% endif %}
 
         <section class="card auth-card">
-          <div class="card-title">
-            <span class="icon">🔐</span>
-            <h2>账号登录</h2>
+          <div class="auth-grid">
+            <div class="auth-aside">
+              <div class="auth-badge">专注电影级调色</div>
+              <h2>欢迎回来</h2>
+              <p>请登录后继续使用系统，体验更丰富的调色分析和 LUT 输出。</p>
+              <ul class="auth-list">
+                <li>AI 场景分析与建议</li>
+                <li>6 套电影级色彩方案</li>
+                <li>一键生成 3D LUT</li>
+              </ul>
+            </div>
+            <div class="auth-form-panel">
+              <div class="card-title auth-title">
+                <span class="icon">🔐</span>
+                <h2>账号登录</h2>
+              </div>
+              <form method="post" class="auth-form">
+                {% if next_url %}
+                  <input type="hidden" name="next" value="{{ next_url|e }}" />
+                {% endif %}
+                <div class="field">
+                  <label for="username">用户名</label>
+                  <input id="username" name="username" type="text" class="text-input" required />
+                  <p class="field-hint">支持中文/英文/数字，3-32 个字符。</p>
+                </div>
+                <div class="field">
+                  <label for="password">密码</label>
+                  <div class="input-with-action">
+                    <input id="password" name="password" type="password" class="text-input" required />
+                    <button class="ghost-button toggle-password" type="button" data-target="password">显示</button>
+                  </div>
+                  <p class="field-hint">至少 8 位字符。</p>
+                </div>
+                <button class="primary-button" type="submit">登录</button>
+              </form>
+              {% if allow_register %}
+                <div class="auth-footer">
+                  还没有账号？<a class="link-button" href="{{ url_for('register') }}">立即注册</a>
+                </div>
+              {% endif %}
+            </div>
           </div>
-          <form method="post" class="auth-form">
-            {% if next_url %}
-              <input type="hidden" name="next" value="{{ next_url|e }}" />
-            {% endif %}
-            <div class="field">
-              <label for="username">用户名</label>
-              <input id="username" name="username" type="text" class="text-input" required />
-            </div>
-            <div class="field">
-              <label for="password">密码</label>
-              <input id="password" name="password" type="password" class="text-input" required />
-            </div>
-            <button class="primary-button" type="submit">登录</button>
-          </form>
-          {% if allow_register %}
-            <div class="auth-footer">
-              还没有账号？<a class="link-button" href="{{ url_for('register') }}">立即注册</a>
-            </div>
-          {% endif %}
         </section>
       </main>
     </div>
+    <script src="{{ url_for('static', filename='auth.js') }}"></script>
   </body>
 </html>

@@ -14,3 +14,5 @@ database_url: "mysql://ai_lut:ai_lut_password@localhost:3306/ai_lut?charset=utf8
 secret_key: "replace-with-a-random-secret"
 allow_register: true
 session_expire_hours: 12
+admin_username: "admin"
+admin_password: "change-me-now"

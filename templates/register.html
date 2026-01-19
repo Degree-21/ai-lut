@@ -6,7 +6,7 @@
     <title>注册 - 调色灵感专家</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
   </head>
-  <body>
+  <body class="auth-page">
     <div class="page">
       <header class="container header">
         <div class="title">
@@ -27,30 +27,53 @@
         {% endif %}
 
         <section class="card auth-card">
-          <div class="card-title">
-            <span class="icon">📝</span>
-            <h2>创建账号</h2>
-          </div>
-          <form method="post" class="auth-form">
-            <div class="field">
-              <label for="username">用户名</label>
-              <input id="username" name="username" type="text" class="text-input" required />
+          <div class="auth-grid">
+            <div class="auth-aside">
+              <div class="auth-badge">开始你的调色旅程</div>
+              <h2>创建账号</h2>
+              <p>完成注册后即可体验完整的影像调色建议与 LUT 导出。</p>
+              <ul class="auth-list">
+                <li>多风格影调一键生成</li>
+                <li>实时输出分析文本</li>
+                <li>私有化本地部署</li>
+              </ul>
             </div>
-            <div class="field">
-              <label for="password">密码</label>
-              <input id="password" name="password" type="password" class="text-input" required />
+            <div class="auth-form-panel">
+              <div class="card-title auth-title">
+                <span class="icon">📝</span>
+                <h2>创建账号</h2>
+              </div>
+              <form method="post" class="auth-form">
+                <div class="field">
+                  <label for="username">用户名</label>
+                  <input id="username" name="username" type="text" class="text-input" required />
+                  <p class="field-hint">支持中文/英文/数字，3-32 个字符。</p>
+                </div>
+                <div class="field">
+                  <label for="password">密码</label>
+                  <div class="input-with-action">
+                    <input id="password" name="password" type="password" class="text-input" required />
+                    <button class="ghost-button toggle-password" type="button" data-target="password">显示</button>
+                  </div>
+                  <p class="field-hint">至少 8 位字符。</p>
+                </div>
+                <div class="field">
+                  <label for="confirm">确认密码</label>
+                  <div class="input-with-action">
+                    <input id="confirm" name="confirm" type="password" class="text-input" required />
+                    <button class="ghost-button toggle-password" type="button" data-target="confirm">显示</button>
+                  </div>
+                </div>
+                <button class="primary-button" type="submit">注册并登录</button>
+              </form>
+              <div class="auth-footer">
+                已有账号？<a class="link-button" href="{{ url_for('login') }}">返回登录</a>
+              </div>
             </div>
-            <div class="field">
-              <label for="confirm">确认密码</label>
-              <input id="confirm" name="confirm" type="password" class="text-input" required />
-            </div>
-            <button class="primary-button" type="submit">注册并登录</button>
-          </form>
-          <div class="auth-footer">
-            已有账号？<a class="link-button" href="{{ url_for('login') }}">返回登录</a>
           </div>
         </section>
       </main>
     </div>
+    <script src="{{ url_for('static', filename='auth.js') }}"></script>
   </body>
 </html>
