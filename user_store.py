@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import Dict, Optional
+from typing import Dict, Iterable, List, Optional
 from urllib.parse import parse_qs, unquote, urlparse
 
 import aiomysql
@@ -68,6 +68,19 @@ async def _execute(
     return None
 
 
+async def _fetch_all(
+    database_url: str, query: str, args: tuple | None = None
+) -> List[Dict[str, object]]:
+    conn = await _open_conn(database_url)
+    try:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(query, args or ())
+            rows = await cur.fetchall()
+            return list(rows or [])
+    finally:
+        conn.close()
+
+
 async def _execute_scalar(database_url: str, query: str) -> int:
     conn = await _open_conn(database_url)
     try:
@@ -94,6 +107,16 @@ def init_db(database_url: str) -> None:
                         password_hash VARCHAR(255) NOT NULL,
                         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         last_login_at DATETIME NULL
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                    """
+                )
+                await cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS app_settings (
+                        name VARCHAR(64) PRIMARY KEY,
+                        value TEXT NOT NULL,
+                        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                            ON UPDATE CURRENT_TIMESTAMP
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
                     """
                 )
@@ -149,3 +172,36 @@ def mark_last_login(database_url: str, user_id: str) -> None:
             (user_id,),
         )
     )
+
+
+def fetch_settings(database_url: str, names: Iterable[str]) -> Dict[str, str]:
+    names_list = [name for name in names if name]
+    if not names_list:
+        return {}
+    placeholders = ", ".join(["%s"] * len(names_list))
+    query = f"SELECT name, value FROM app_settings WHERE name IN ({placeholders})"
+    rows = _run(_fetch_all(database_url, query, tuple(names_list)))
+    return {str(row["name"]): str(row["value"]) for row in rows if row}
+
+
+def upsert_settings(database_url: str, settings: Dict[str, str]) -> None:
+    items = [(name, value) for name, value in settings.items()]
+    if not items:
+        return
+
+    async def _upsert() -> None:
+        conn = await _open_conn(database_url)
+        try:
+            async with conn.cursor() as cur:
+                await cur.executemany(
+                    """
+                    INSERT INTO app_settings (name, value)
+                    VALUES (%s, %s)
+                    ON DUPLICATE KEY UPDATE value = VALUES(value)
+                    """,
+                    items,
+                )
+        finally:
+            conn.close()
+
+    _run(_upsert())

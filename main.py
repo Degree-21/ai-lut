@@ -31,20 +31,23 @@ from flask import (
 from openai import OpenAI
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from config import load_settings, save_settings
+from config import load_settings
 from user_store import (
     UserExistsError,
     count_users,
     create_user,
     fetch_user_by_username,
+    fetch_settings,
     init_db,
     mark_last_login,
+    upsert_settings,
 )
 
 DEBUG_REQUESTS_STATE = False
 MIN_PASSWORD_LENGTH = 8
 MIN_USERNAME_LENGTH = 3
 MAX_USERNAME_LENGTH = 32
+DB_SETTING_KEYS = ("analysis_model", "image_model", "api_key", "doubao_api_key")
 
 
 @dataclass(frozen=True)
@@ -189,6 +192,18 @@ def is_admin_user(settings: Dict[str, object], username: str | None) -> bool:
     if not admin_username or not username:
         return False
     return username == admin_username
+
+
+def load_effective_settings(database_url: str) -> Dict[str, object]:
+    settings = load_settings()
+    try:
+        db_settings = fetch_settings(database_url, DB_SETTING_KEYS)
+    except Exception:
+        return settings
+    for key, value in db_settings.items():
+        settings[key] = value
+    return settings
+
 
 def load_config() -> AppConfig:
     settings = load_settings()
@@ -854,7 +869,7 @@ def create_app() -> Flask:
     @app.route("/")
     @login_required
     def index():
-        settings = load_settings()
+        settings = load_effective_settings(database_url)
         is_admin = is_admin_user(settings, session.get("username"))
         return render_template(
             "index.html",
@@ -869,7 +884,7 @@ def create_app() -> Flask:
     @app.route("/admin/config", methods=["GET", "POST"])
     @login_required
     def admin_config():
-        settings = load_settings()
+        settings = load_effective_settings(database_url)
         if not is_admin_user(settings, session.get("username")):
             return "无权限访问。", 403
 
@@ -885,16 +900,21 @@ def create_app() -> Flask:
             elif not image_model:
                 error = "输出模型不能为空。"
             else:
-                save_settings(
-                    {
-                        "analysis_model": analysis_model,
-                        "image_model": image_model,
-                        "api_key": api_key,
-                        "doubao_api_key": doubao_api_key,
-                    }
-                )
-                settings = load_settings()
-                message = "系统配置已保存。"
+                try:
+                    upsert_settings(
+                        database_url,
+                        {
+                            "analysis_model": analysis_model,
+                            "image_model": image_model,
+                            "api_key": api_key,
+                            "doubao_api_key": doubao_api_key,
+                        },
+                    )
+                except Exception:
+                    error = "保存失败，请检查数据库连接。"
+                else:
+                    settings = load_effective_settings(database_url)
+                    message = "系统配置已保存。"
 
         return render_template(
             "admin_config.html",
@@ -911,7 +931,7 @@ def create_app() -> Flask:
     @login_required
     def api_generate():
         require_dependencies()
-        settings = load_settings()
+        settings = load_effective_settings(database_url)
         api_key = request.form.get("api_key", "").strip() or str(
             settings.get("api_key", "")
         )
@@ -1029,7 +1049,7 @@ def create_app() -> Flask:
     @login_required
     def api_analyze_stream():
         require_dependencies()
-        settings = load_settings()
+        settings = load_effective_settings(database_url)
         api_key = request.form.get("api_key", "").strip() or str(
             settings.get("api_key", "")
         )
