@@ -57,9 +57,9 @@
                         {{ '+' if item.change_amount >= 0 else '' }}{{ item.change_amount }}
                       </td>
                       <td>{{ item.balance_after }}</td>
-                      <td>{{ item.reason }}</td>
-                      <td>{{ item.source }}</td>
-                      <td>{{ item.note or '-' }}</td>
+                      <td>{{ item.reason_label }}</td>
+                      <td>{{ item.source_label }}</td>
+                      <td>{{ item.note_label }}</td>
                     </tr>
                   {% endfor %}
                 </tbody>

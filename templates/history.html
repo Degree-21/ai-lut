@@ -39,6 +39,7 @@
                     <th>风格</th>
                     <th>原图</th>
                     <th>分析</th>
+                    <th>详情</th>
                     <th>摘要</th>
                   </tr>
                 </thead>
@@ -61,6 +62,9 @@
                         {% else %}
                           -
                         {% endif %}
+                      </td>
+                      <td>
+                        <a class="link-button" href="{{ url_for('index', run_id=item.run_id) }}">查看详情</a>
                       </td>
                       <td class="analysis-preview">
                         {{ item.analysis_text|truncate(80, True, '...') }}

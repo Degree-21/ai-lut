@@ -47,7 +47,13 @@ def _run(coro):
 
 async def _open_conn(database_url: str) -> aiomysql.Connection:
     config = _parse_database_url(database_url)
-    return await aiomysql.connect(**config)
+    conn = await aiomysql.connect(**config)
+    try:
+        await conn.set_charset("utf8mb4")
+    except AttributeError:
+        async with conn.cursor() as cur:
+            await cur.execute("SET NAMES utf8mb4")
+    return conn
 
 
 async def _execute(
@@ -159,6 +165,7 @@ def init_db(database_url: str) -> None:
                         ("user_points", "user_id"),
                         ("points_transactions", "user_id"),
                         ("analysis_records", "user_id"),
+                        ("analysis_images", "user_id"),
                         ("analysis_luts", "user_id"),
                     ]
                     for table, user_col in tables:
@@ -258,6 +265,28 @@ def init_db(database_url: str) -> None:
                         INDEX idx_analysis_records_user (user_id),
                         INDEX idx_analysis_records_created (created_at),
                         CONSTRAINT fk_analysis_records_user
+                            FOREIGN KEY (user_id) REFERENCES users(id)
+                            ON DELETE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                    """
+                )
+                await cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS analysis_images (
+                        id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        user_id BIGINT NOT NULL,
+                        run_id VARCHAR(64) NOT NULL,
+                        style_id VARCHAR(64) NOT NULL,
+                        image_filename VARCHAR(255) NOT NULL,
+                        image_url TEXT NULL,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                            ON UPDATE CURRENT_TIMESTAMP,
+                        INDEX idx_analysis_images_user (user_id),
+                        INDEX idx_analysis_images_run (run_id),
+                        INDEX idx_analysis_images_style (style_id),
+                        UNIQUE KEY uniq_analysis_images_filename (run_id, image_filename),
+                        CONSTRAINT fk_analysis_images_user
                             FOREIGN KEY (user_id) REFERENCES users(id)
                             ON DELETE CASCADE
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -510,6 +539,48 @@ def create_analysis_record(
     )
 
 
+def fetch_analysis_record(
+    database_url: str, user_id: int, run_id: str
+) -> Optional[Dict[str, object]]:
+    return _run(
+        _execute(
+            database_url,
+            """
+            SELECT id, run_id, style_ids, cost, source_filename, source_url,
+                   analysis_text, analysis_url, created_at
+            FROM analysis_records
+            WHERE user_id = %s AND run_id = %s
+            """,
+            (user_id, run_id),
+            fetchone=True,
+        )
+    )
+
+
+def create_image_record(
+    database_url: str,
+    *,
+    user_id: int,
+    run_id: str,
+    style_id: str,
+    image_filename: str,
+    image_url: str | None,
+) -> None:
+    _run(
+        _execute(
+            database_url,
+            """
+            INSERT INTO analysis_images
+                (user_id, run_id, style_id, image_filename, image_url)
+            VALUES (%s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                image_url = VALUES(image_url)
+            """,
+            (user_id, run_id, style_id, image_filename, image_url),
+        )
+    )
+
+
 def create_lut_record(
     database_url: str,
     *,
@@ -545,6 +616,28 @@ def create_lut_record(
             ),
         )
     )
+
+
+def list_image_records(
+    database_url: str, user_id: int, run_id: str
+) -> List[Dict[str, object]]:
+    query = (
+        "SELECT style_id, image_filename, image_url "
+        "FROM analysis_images WHERE user_id = %s AND run_id = %s "
+        "ORDER BY id ASC"
+    )
+    return _run(_fetch_all(database_url, query, (user_id, run_id)))
+
+
+def list_lut_records(
+    database_url: str, user_id: int, run_id: str
+) -> List[Dict[str, object]]:
+    query = (
+        "SELECT style_id, lut_filename, lut_url "
+        "FROM analysis_luts WHERE user_id = %s AND run_id = %s "
+        "ORDER BY id ASC"
+    )
+    return _run(_fetch_all(database_url, query, (user_id, run_id)))
 
 
 def fetch_lut_content(

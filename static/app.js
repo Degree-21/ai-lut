@@ -104,6 +104,12 @@ elements.regenerateButton.addEventListener("click", () => {
   generateStyles();
 });
 
+const params = new URLSearchParams(window.location.search);
+const historyRunId = params.get("run_id");
+if (historyRunId) {
+  loadHistoryRecord(historyRunId);
+}
+
 function setStatus(visible, text) {
   if (visible) {
     elements.statusPanel.classList.remove("hidden");
@@ -155,7 +161,7 @@ function renderResults() {
 
     const img = document.createElement("img");
     img.className = "result-image";
-    img.src = item.image;
+    img.src = item.image || item.image_url || "";
     img.alt = item.name;
 
     const body = document.createElement("div");
@@ -184,7 +190,7 @@ function renderResults() {
     const imgLink = document.createElement("a");
     imgLink.className = "action-button action-secondary";
     imgLink.textContent = "保存图";
-    imgLink.href = item.image;
+    imgLink.href = item.image || item.image_url || "#";
     imgLink.setAttribute("download", `ref_${item.id}.png`);
 
     actions.appendChild(lutLink);
@@ -197,8 +203,23 @@ function renderResults() {
     card.appendChild(img);
     card.appendChild(body);
 
-    elements.results.appendChild(card);
+  elements.results.appendChild(card);
   });
+}
+
+async function readJsonResponse(response) {
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    return await response.json();
+  }
+  const text = await response.text();
+  if (response.status === 401) {
+    throw new Error("登录已过期，请刷新页面。");
+  }
+  if (text && text.trim().startsWith("<!doctype")) {
+    throw new Error("服务端返回了 HTML，可能是登录失效或服务异常。");
+  }
+  throw new Error(text ? text.trim() : "服务端返回非 JSON 响应。");
 }
 
 async function generateStyle(style, analysis) {
@@ -216,7 +237,7 @@ async function generateStyle(style, analysis) {
     method: "POST",
     body: formData,
   });
-  const data = await response.json();
+  const data = await readJsonResponse(response);
   if (!response.ok) {
     throw new Error(data.error || "生成失败，请重试。");
   }
@@ -225,6 +246,46 @@ async function generateStyle(style, analysis) {
     throw new Error("未获取到生成结果。");
   }
   return { result, analysis: data.analysis || analysis };
+}
+
+async function loadHistoryRecord(runId) {
+  if (!runId) {
+    return;
+  }
+  clearError();
+  setStatus(false, "");
+  try {
+    const response = await fetch(`/api/history/${encodeURIComponent(runId)}`);
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || "加载记录失败，请重试。");
+    }
+    clearResults();
+    state.results = data.results || [];
+    state.analysis = data.analysis || "";
+    state.runId = data.run_id || runId;
+
+    if (data.source_url) {
+      elements.previewImage.src = data.source_url;
+      elements.previewImage.classList.remove("hidden");
+      elements.uploadArea.classList.add("has-image");
+      elements.uploadPlaceholder.classList.add("hidden");
+    }
+
+    if (state.analysis) {
+      elements.analysisText.textContent = state.analysis;
+      elements.analysisCard.classList.remove("hidden");
+    }
+
+    if (state.results.length) {
+      renderResults();
+      elements.regenerateButton.classList.add("hidden");
+    } else {
+      renderEmptyState();
+    }
+  } catch (error) {
+    showError(error.message || "加载记录失败，请重试。");
+  }
 }
 
 async function streamAnalysis() {

@@ -39,13 +39,17 @@ from user_store import (
     count_users,
     create_user,
     create_analysis_record,
+    create_image_record,
     create_lut_record,
+    fetch_analysis_record,
     fetch_user_by_username,
     fetch_lut_content,
     fetch_settings,
     get_user_points,
     init_db,
     list_analysis_records,
+    list_image_records,
+    list_lut_records,
     list_points_transactions,
     mark_last_login,
     upsert_settings,
@@ -70,6 +74,15 @@ POINTS_REASON_REFUND = "filter_refund"
 ICP_RECORD = "闽ICP备2025083568号-1"
 DEFAULT_LUT_SPACE = "rec709_sdr"
 QINIU_IMAGE_SUFFIX = "?imageMogr2/thumbnail/400x/strip/format/jpg"
+POINTS_REASON_LABELS = {
+    POINTS_REASON_REGISTER: "注册赠送",
+    POINTS_REASON_FILTER: "调色生成",
+    POINTS_REASON_REFUND: "生成失败返还",
+}
+POINTS_SOURCE_LABELS = {
+    POINTS_SOURCE_REGISTER: "注册",
+    POINTS_SOURCE_FILTER: "生成",
+}
 
 
 @dataclass(frozen=True)
@@ -298,6 +311,8 @@ def extension_from_mime(mime_type: str) -> str:
         return ".jpg"
     if mime_type == "image/webp":
         return ".webp"
+    if mime_type in {"image/heic", "image/heif"}:
+        return ".heic"
     if mime_type == "image/png":
         return ".png"
     return ""
@@ -365,6 +380,27 @@ def append_qiniu_image_suffix(url: str, suffix: str = QINIU_IMAGE_SUFFIX) -> str
     return f"{url}?{suffix}"
 
 
+def format_points_note(note: str | None, reason: str) -> str:
+    if not note:
+        return "-"
+    if reason not in {POINTS_REASON_FILTER, POINTS_REASON_REFUND}:
+        return note
+    styles = None
+    run_id = None
+    for token in note.split():
+        if token.startswith("styles="):
+            styles = token.split("=", 1)[1]
+        elif token.startswith("run_id="):
+            run_id = token.split("=", 1)[1]
+    if not styles and not run_id:
+        return note
+    if styles and run_id:
+        return f"风格={styles} 任务={run_id}"
+    if styles:
+        return f"风格={styles}"
+    return f"任务={run_id}"
+
+
 def load_config() -> AppConfig:
     settings = load_settings()
     image_path = Path(settings.get("image_path", "input.png"))
@@ -430,14 +466,85 @@ def guess_mime_type(path: Path) -> str:
         return "image/jpeg"
     if ext == ".webp":
         return "image/webp"
+    if ext in {".heic", ".heif"}:
+        return "image/heic"
     return "image/png"
 
 
+HEIF_MIME_TYPES = {"image/heic", "image/heif"}
+HEIF_EXTENSIONS = {".heic", ".heif"}
+SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"} | HEIF_EXTENSIONS
+
+
+def is_heif_image(filename: str | None, mime_type: str | None) -> bool:
+    if mime_type and mime_type.lower() in HEIF_MIME_TYPES:
+        return True
+    suffix = Path(filename or "").suffix.lower()
+    return suffix in HEIF_EXTENSIONS
+
+
+def ensure_heif_support() -> None:
+    if try_register_heif_opener():
+        return
+    raise RuntimeError(
+        "检测到 HEIC/HEIF 图片，请先安装 pillow-heif 以解码。"
+    )
+
+
+def try_register_heif_opener() -> bool:
+    try:
+        import pillow_heif
+    except Exception:
+        return False
+    try:
+        pillow_heif.register_heif_opener()
+    except Exception:
+        return False
+    return True
+
+
+def resolve_image_suffix(filename: str | None, mime_type: str | None) -> str:
+    suffix = Path(filename or "").suffix.lower()
+    if suffix == ".jpeg":
+        suffix = ".jpg"
+    if suffix in SUPPORTED_IMAGE_EXTENSIONS:
+        return suffix
+    if mime_type:
+        ext = extension_from_mime(mime_type.lower())
+        if ext:
+            return ext
+    return ".png"
+
+
+def normalize_image_input(
+    image_bytes: bytes,
+    *,
+    filename: str | None,
+    mime_type: str | None,
+) -> Tuple[bytes, Image.Image, str, str]:
+    try_register_heif_opener()
+    resolved_mime = (mime_type or "").strip().lower()
+    resolved_suffix = resolve_image_suffix(filename, resolved_mime)
+    if is_heif_image(filename, resolved_mime) or resolved_suffix in HEIF_EXTENSIONS:
+        ensure_heif_support()
+        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        return buffer.getvalue(), image, "image/png", ".png"
+    image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    if not resolved_mime:
+        resolved_mime = guess_mime_type(Path(f"file{resolved_suffix}"))
+    return image_bytes, image, resolved_mime, resolved_suffix
+
+
 def load_image_base64(path: Path) -> Tuple[str, Image.Image, str]:
-    image = Image.open(path).convert("RGB")
-    with path.open("rb") as f:
-        encoded = base64.b64encode(f.read()).decode("ascii")
-    return encoded, image, guess_mime_type(path)
+    image_bytes = path.read_bytes()
+    mime_type = guess_mime_type(path)
+    image_bytes, image, mime_type, _ = normalize_image_input(
+        image_bytes, filename=path.name, mime_type=mime_type
+    )
+    encoded = base64.b64encode(image_bytes).decode("ascii")
+    return encoded, image, mime_type
 
 
 def fetch_with_retry(
@@ -1174,6 +1281,16 @@ def create_app() -> Flask:
         transactions = (
             list_points_transactions(database_url, user_id, limit=100) if user_id else []
         )
+        for item in transactions:
+            item["reason_label"] = POINTS_REASON_LABELS.get(
+                str(item.get("reason", "")), str(item.get("reason", ""))
+            )
+            item["source_label"] = POINTS_SOURCE_LABELS.get(
+                str(item.get("source", "")), str(item.get("source", ""))
+            )
+            item["note_label"] = format_points_note(
+                item.get("note"), str(item.get("reason", ""))
+            )
         return render_template(
             "points.html",
             current_user=session.get("username"),
@@ -1190,6 +1307,55 @@ def create_app() -> Flask:
             "history.html",
             current_user=session.get("username"),
             records=records,
+        )
+
+    @app.route("/api/history/<run_id>")
+    @login_required
+    def api_history_detail(run_id: str):
+        user_id = get_session_user_id()
+        if not user_id:
+            return jsonify({"error": "未登录，请先登录。"}), 401
+        record = fetch_analysis_record(database_url, user_id, run_id)
+        if not record:
+            return jsonify({"error": "记录不存在。"}), 404
+        style_ids_raw = str(record.get("style_ids", ""))
+        style_ids = [item for item in style_ids_raw.split(",") if item]
+        style_map = {style.id: style for style in STYLE_PRESETS}
+        image_records = list_image_records(database_url, user_id, run_id)
+        lut_records = list_lut_records(database_url, user_id, run_id)
+        image_map = {row.get("style_id"): row for row in image_records}
+        lut_map = {row.get("style_id"): row for row in lut_records}
+        results = []
+        for style_id in style_ids:
+            style = style_map.get(style_id)
+            image_row = image_map.get(style_id) or {}
+            image_url = image_row.get("image_url")
+            image_filename = image_row.get("image_filename")
+            if not image_url and image_filename:
+                image_url = f"/api/download/{run_id}/{image_filename}"
+            lut_row = lut_map.get(style_id) or {}
+            lut_url = lut_row.get("lut_url")
+            lut_filename = lut_row.get("lut_filename")
+            if not lut_url and lut_filename:
+                lut_url = f"/api/download/{run_id}/{lut_filename}"
+            results.append(
+                {
+                    "id": style_id,
+                    "name": style.name if style else style_id,
+                    "description": style.description if style else "",
+                    "image": image_url or "",
+                    "image_url": image_url,
+                    "lut_url": lut_url,
+                }
+            )
+        return jsonify(
+            {
+                "analysis": record.get("analysis_text") or "",
+                "analysis_url": record.get("analysis_url") or "",
+                "source_url": record.get("source_url") or "",
+                "results": results,
+                "run_id": record.get("run_id") or run_id,
+            }
         )
 
     @app.route("/api/generate", methods=["POST"])
@@ -1288,17 +1454,18 @@ def create_app() -> Flask:
             debug_requests=bool(settings.get("debug_requests", False)),
         )
 
-        mime_type = image_file.mimetype or "image/png"
-        original_suffix = Path(image_file.filename or "").suffix.lower()
-        if original_suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
-            original_suffix = extension_from_mime(mime_type) or ".png"
-        if original_suffix == ".jpeg":
-            original_suffix = ".jpg"
+        try:
+            image_bytes, source_image, mime_type, original_suffix = normalize_image_input(
+                image_bytes,
+                filename=image_file.filename or "",
+                mime_type=image_file.mimetype or "",
+            )
+        except Exception as exc:
+            return jsonify({"error": f"图片解析失败: {exc}"}), 400
         source_filename = f"source{original_suffix}"
         source_path = out_dir / source_filename
         source_path.write_bytes(image_bytes)
         image_b64 = base64.b64encode(image_bytes).decode("ascii")
-        source_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
         uploaded_files: Dict[str, str] = {}
         image_url = None
@@ -1415,13 +1582,27 @@ def create_app() -> Flask:
                     except Exception:
                         pass
             image_filename = f"ref_{item['id']}.png"
+            image_url = uploaded_files.get(image_filename)
+            if not image_url:
+                image_url = f"/api/download/{out_dir.name}/{image_filename}"
+            try:
+                create_image_record(
+                    database_url,
+                    user_id=user_id,
+                    run_id=out_dir.name,
+                    style_id=str(item.get("id", "")),
+                    image_filename=image_filename,
+                    image_url=image_url,
+                )
+            except Exception:
+                pass
             payload_results.append(
                 {
                     "id": item["id"],
                     "name": item["name"],
                     "description": item["description"],
                     "image": f"data:image/png;base64,{image_base64}",
-                    "image_url": uploaded_files.get(image_filename),
+                    "image_url": image_url,
                     "lut_url": lut_url,
                 }
             )
@@ -1483,18 +1664,25 @@ def create_app() -> Flask:
             debug_requests=bool(settings.get("debug_requests", False)),
         )
 
-        mime_type = image_file.mimetype or "image/png"
+        mime_type = (image_file.mimetype or "").strip().lower()
+        original_suffix = resolve_image_suffix(image_file.filename or "", mime_type)
+        if is_heif_image(image_file.filename or "", mime_type) or original_suffix in HEIF_EXTENSIONS:
+            try:
+                image_bytes, _, mime_type, original_suffix = normalize_image_input(
+                    image_bytes,
+                    filename=image_file.filename or "",
+                    mime_type=mime_type,
+                )
+            except Exception as exc:
+                return jsonify({"error": f"图片解析失败: {exc}"}), 400
+        elif not mime_type:
+            mime_type = guess_mime_type(Path(f"file{original_suffix}"))
         image_b64 = base64.b64encode(image_bytes).decode("ascii")
         image_url = None
         if analysis_model.startswith("doubao-"):
             qiniu_config = load_qiniu_config(settings)
             if not qiniu_config:
                 return jsonify({"error": "豆包模型需要配置七牛云以使用图片 URL 输入。"}), 400
-            original_suffix = Path(image_file.filename or "").suffix.lower()
-            if original_suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
-                original_suffix = extension_from_mime(mime_type) or ".png"
-            if original_suffix == ".jpeg":
-                original_suffix = ".jpg"
             upload_id = f"stream-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
             key = f"{upload_id}/source{original_suffix}"
             temp_path: Path | None = None
