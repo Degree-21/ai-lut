@@ -22,6 +22,7 @@ const elements = {
   uploadPlaceholder: document.querySelector(".upload-placeholder"),
   resetButton: document.getElementById("reset-button"),
   lutToggle: document.getElementById("lut-toggle"),
+  lutSpace: document.getElementById("lut-space"),
   debugToggle: document.getElementById("debug-toggle"),
   generateButton: document.getElementById("generate-button"),
   regenerateButton: document.getElementById("regenerate-button"),
@@ -205,6 +206,9 @@ async function generateStyle(style, analysis) {
   formData.append("image", state.file);
   formData.append("analysis", analysis);
   formData.append("generate_lut", elements.lutToggle.checked ? "1" : "0");
+  if (elements.lutSpace) {
+    formData.append("lut_space", elements.lutSpace.value);
+  }
   formData.append("debug_requests", elements.debugToggle.checked ? "1" : "0");
   formData.append("styles", style.id);
 

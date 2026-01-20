@@ -5,6 +5,7 @@ import io
 import json
 import os
 import sys
+import tempfile
 import time
 import uuid
 from dataclasses import dataclass
@@ -38,7 +39,9 @@ from user_store import (
     count_users,
     create_user,
     create_analysis_record,
+    create_lut_record,
     fetch_user_by_username,
+    fetch_lut_content,
     fetch_settings,
     get_user_points,
     init_db,
@@ -65,6 +68,8 @@ POINTS_REASON_FILTER = "filter_use"
 POINTS_SOURCE_FILTER = "generate"
 POINTS_REASON_REFUND = "filter_refund"
 ICP_RECORD = "闽ICP备2025083568号-1"
+DEFAULT_LUT_SPACE = "rec709_sdr"
+QINIU_IMAGE_SUFFIX = "?imageMogr2/thumbnail/400x/strip/format/jpg"
 
 
 @dataclass(frozen=True)
@@ -90,15 +95,59 @@ ANALYSIS_PROMPT = (
     "请输出一段极其详尽的描述，用于指导另一个AI生成相同结构但不同影调的图片。"
 )
 
+LUT_SPACE_PRESETS = {
+    "rec709_sdr": {
+        "label": "Rec.709 SDR (BT.1886)",
+        "gamma": 2.4,
+        "file_tag": "709SDR",
+    },
+    "rec709a": {
+        "label": "Rec.709-A (Apple Display Gamma)",
+        "gamma": 1.96,
+        "file_tag": "709A",
+    },
+}
+
+
+def normalize_lut_space(value: str | None) -> str:
+    if not value:
+        return DEFAULT_LUT_SPACE
+    key = str(value).strip().lower().replace(" ", "")
+    if key in {"rec709a", "rec.709a", "rec709-a", "709a"}:
+        return "rec709a"
+    if key in {
+        "rec709_sdr",
+        "rec709sdr",
+        "rec.709sdr",
+        "rec709_24",
+        "rec709",
+        "rec.709",
+        "709",
+        "g24",
+        "gamma24",
+        "2.4",
+        "rec709-g24",
+        "bt1886",
+        "bt.1886",
+    }:
+        return "rec709_sdr"
+    return DEFAULT_LUT_SPACE
+
+
+def get_lut_space_info(lut_space: str | None) -> Tuple[str, float, str, str]:
+    normalized = normalize_lut_space(lut_space)
+    info = LUT_SPACE_PRESETS[normalized]
+    return normalized, float(info["gamma"]), str(info["file_tag"]), str(info["label"])
+
 
 class ColorTools:
     @staticmethod
-    def gamma_to_linear(v: np.ndarray) -> np.ndarray:
-        return np.power(np.maximum(0.0, v), 2.4)
+    def gamma_to_linear(v: np.ndarray, gamma: float) -> np.ndarray:
+        return np.power(np.maximum(0.0, v), gamma)
 
     @staticmethod
-    def linear_to_gamma(v: np.ndarray) -> np.ndarray:
-        return np.power(np.maximum(0.0, v), 1 / 2.4)
+    def linear_to_gamma(v: np.ndarray, gamma: float) -> np.ndarray:
+        return np.power(np.maximum(0.0, v), 1 / gamma)
 
     @staticmethod
     def rgb_to_oklab(r: np.ndarray, g: np.ndarray, b: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -139,6 +188,7 @@ class AppConfig:
     no_lut: bool
     sample_size: int
     lut_size: int
+    lut_space: str
     retries: int
     debug_requests: bool
 
@@ -286,14 +336,33 @@ def upload_to_qiniu(config: QiniuConfig, file_path: Path, key: str) -> str:
     return f"{config.domain}/{key}"
 
 
-def upload_run_outputs(out_dir: Path, run_id: str, config: QiniuConfig) -> Dict[str, str]:
-    uploads: Dict[str, str] = {}
+def upload_run_outputs(
+    out_dir: Path,
+    run_id: str,
+    config: QiniuConfig,
+    existing: Dict[str, str] | None = None,
+) -> Dict[str, str]:
+    uploads: Dict[str, str] = dict(existing or {})
     for path in sorted(out_dir.iterdir()):
         if not path.is_file():
+            continue
+        if path.name in uploads:
             continue
         key = f"{run_id}/{path.name}"
         uploads[path.name] = upload_to_qiniu(config, path, key)
     return uploads
+
+
+def append_qiniu_image_suffix(url: str, suffix: str = QINIU_IMAGE_SUFFIX) -> str:
+    if not suffix:
+        return url
+    if "?" in url:
+        if suffix.startswith("?"):
+            return f"{url}&{suffix[1:]}"
+        return f"{url}&{suffix}"
+    if suffix.startswith("?"):
+        return f"{url}{suffix}"
+    return f"{url}?{suffix}"
 
 
 def load_config() -> AppConfig:
@@ -304,6 +373,7 @@ def load_config() -> AppConfig:
     no_lut = bool(settings.get("no_lut", False))
     sample_size = int(settings.get("sample_size", 128))
     lut_size = int(settings.get("lut_size", 65))
+    lut_space = normalize_lut_space(settings.get("lut_space", DEFAULT_LUT_SPACE))
     retries = int(settings.get("retries", 5))
     return AppConfig(
         image_path=image_path,
@@ -316,6 +386,7 @@ def load_config() -> AppConfig:
         no_lut=no_lut,
         sample_size=sample_size,
         lut_size=lut_size,
+        lut_space=lut_space,
         retries=retries,
         debug_requests=bool(settings.get("debug_requests", False)),
     )
@@ -444,12 +515,17 @@ def resolve_style_ids(styles_value: str) -> List[str]:
 
 
 def analyze_scene(
-    image_b64: str, mime_type: str, config: AppConfig, retries: int
+    image_b64: str,
+    mime_type: str,
+    config: AppConfig,
+    retries: int,
+    image_url: str | None = None,
 ) -> str:
     if config.analysis_model.startswith("doubao-"):
         if not config.doubao_api_key:
             raise RuntimeError("未提供豆包 API Key，请通过环境变量 ARK_API_KEY 设置。")
 
+        image_input = resolve_doubao_image_input(image_b64, mime_type, image_url)
         client = OpenAI(
             base_url="https://ark.cn-beijing.volces.com/api/v3",
             api_key=config.doubao_api_key,
@@ -464,7 +540,7 @@ def analyze_scene(
                         {
                             "type": "image_url",
                             "image_url": {
-                                "url": f"data:{mime_type};base64,{image_b64}"
+                                "url": image_input
                             },
                         },
                         {
@@ -521,7 +597,11 @@ def extract_image_bytes(result: Dict) -> bytes:
     raise RuntimeError("未获取到生成图像数据")
 
 
-def resolve_doubao_image_input(image_b64: str, mime_type: str) -> str:
+def resolve_doubao_image_input(
+    image_b64: str, mime_type: str, image_url: str | None = None
+) -> str:
+    if image_url:
+        return image_url
     if image_b64.startswith(("http://", "https://")):
         return image_b64
     return f"data:{mime_type};base64,{image_b64}"
@@ -541,16 +621,20 @@ def extract_doubao_image_bytes(result: Dict) -> bytes:
 
 
 def stream_analyze_scene(
-    image_b64: str, mime_type: str, config: AppConfig, retries: int
+    image_b64: str,
+    mime_type: str,
+    config: AppConfig,
+    retries: int,
+    image_url: str | None = None,
 ):
     if not config.analysis_model.startswith("doubao-"):
-        yield analyze_scene(image_b64, mime_type, config, retries)
+        yield analyze_scene(image_b64, mime_type, config, retries, image_url=image_url)
         return
     if not config.doubao_api_key:
         raise RuntimeError("未提供豆包 API Key，请通过环境变量 ARK_API_KEY 设置。")
 
     url = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
-    image_input = resolve_doubao_image_input(image_b64, mime_type)
+    image_input = resolve_doubao_image_input(image_b64, mime_type, image_url)
     payload = {
         "model": config.analysis_model,
         "stream": True,
@@ -637,12 +721,13 @@ def generate_style_image(
         mime_type: str,
         config: AppConfig,
         retries: int,
+        image_url: str | None = None,
 ) -> bytes:
     if config.image_model.startswith("doubao-"):
         if not config.doubao_api_key:
             raise RuntimeError("未提供豆包 API Key，请通过环境变量 ARK_API_KEY 设置。")
         url = "https://ark.cn-beijing.volces.com/api/v3/images/generations"
-        image_input = resolve_doubao_image_input(image_b64, mime_type)
+        image_input = resolve_doubao_image_input(image_b64, mime_type, image_url)
         payload = {
             "model": config.image_model,
             "prompt": (
@@ -692,10 +777,14 @@ def generate_style_image(
             raise RuntimeError(f"未获取到 {style.id} 的生成结果") from exc
 
 
-def extract_histogram(image: Image.Image, sample_size: int) -> Dict[str, np.ndarray]:
+def extract_histogram(
+    image: Image.Image,
+    sample_size: int,
+    gamma: float,
+) -> Dict[str, np.ndarray]:
     resized = image.resize((sample_size, sample_size), Image.LANCZOS)
     pixels = np.asarray(resized, dtype=np.float32) / 255.0
-    linear = ColorTools.gamma_to_linear(pixels)
+    linear = ColorTools.gamma_to_linear(pixels, gamma)
     r = linear[:, :, 0]
     g = linear[:, :, 1]
     b = linear[:, :, 2]
@@ -730,9 +819,11 @@ def generate_lut(
         output_path: Path,
         sample_size: int = 128,
         lut_size: int = 65,
-) -> None:
-    src_hist = extract_histogram(source, sample_size)
-    tgt_hist = extract_histogram(target, sample_size)
+        lut_space: str = DEFAULT_LUT_SPACE,
+) -> str:
+    _, gamma, file_tag, space_label = get_lut_space_info(lut_space)
+    src_hist = extract_histogram(source, sample_size, gamma)
+    tgt_hist = extract_histogram(target, sample_size, gamma)
 
     lookups = {
         "L": build_lookup(get_cdf(src_hist["L"]), get_cdf(tgt_hist["L"])),
@@ -741,13 +832,15 @@ def generate_lut(
     }
 
     levels = np.linspace(0.0, 1.0, lut_size)
-    linear_levels = ColorTools.gamma_to_linear(levels)
+    linear_levels = ColorTools.gamma_to_linear(levels, gamma)
 
     lines: List[str] = [
-        f'TITLE "AI_{style_id.upper()}"',
+        f'TITLE "AI_{style_id.upper()}_{file_tag}"',
         f"LUT_3D_SIZE {lut_size}",
         "DOMAIN_MIN 0.0 0.0 0.0",
         "DOMAIN_MAX 1.0 1.0 1.0",
+        f"# LUT_SPACE {space_label}",
+        f"# GAMMA {gamma:.3f}",
         "",
     ]
 
@@ -765,15 +858,17 @@ def generate_lut(
                 na = (lookups["a"][a_idx] / (255 / 0.8)) - 0.4
                 nb = (lookups["b"][b_idx] / (255 / 0.8)) - 0.4
                 fr, fg, fb = ColorTools.oklab_to_rgb(nL, na, nb)
-                fr = ColorTools.linear_to_gamma(np.array(fr))
-                fg = ColorTools.linear_to_gamma(np.array(fg))
-                fb = ColorTools.linear_to_gamma(np.array(fb))
+                fr = ColorTools.linear_to_gamma(np.array(fr), gamma)
+                fg = ColorTools.linear_to_gamma(np.array(fg), gamma)
+                fb = ColorTools.linear_to_gamma(np.array(fb), gamma)
                 fr = float(np.clip(fr, 0.0, 1.0))
                 fg = float(np.clip(fg, 0.0, 1.0))
                 fb = float(np.clip(fb, 0.0, 1.0))
                 lines.append(f"{fr:.6f} {fg:.6f} {fb:.6f}")
 
-    output_path.write_text("\n".join(lines), encoding="utf-8")
+    lut_text = "\n".join(lines)
+    output_path.write_text(lut_text, encoding="utf-8")
+    return lut_text
 
 
 def run_pipeline(
@@ -782,6 +877,7 @@ def run_pipeline(
     source_image: Image.Image,
     mime_type: str,
     style_ids: List[str],
+    image_url: str | None = None,
     analysis_override: str | None = None,
     debug_requests: bool = False,
 ) -> Tuple[str, List[Dict[str, object]]]:
@@ -800,12 +896,13 @@ def run_pipeline(
             scene_description = analysis_override
         else:
             scene_description = analyze_scene(
-                image_b64, mime_type, config, config.retries
+                image_b64, mime_type, config, config.retries, image_url=image_url
             )
         analysis_path = out_dir / "analysis.txt"
         analysis_path.write_text(scene_description, encoding="utf-8")
 
         results: List[Dict[str, object]] = []
+        _, _, lut_file_tag, _ = get_lut_space_info(config.lut_space)
         for style in selected_styles:
             image_bytes = generate_style_image(
                 scene_description,
@@ -814,21 +911,24 @@ def run_pipeline(
                 mime_type,
                 config,
                 config.retries,
+                image_url=image_url,
             )
             image_out = out_dir / f"ref_{style.id}.png"
             image_out.write_bytes(image_bytes)
 
             lut_filename = None
+            lut_content = None
             if not config.no_lut:
                 target_image = Image.open(image_out).convert("RGB")
-                lut_out = out_dir / f"AI_Grade_{style.id}_{config.lut_size}.cube"
-                generate_lut(
+                lut_out = out_dir / f"AI_Grade_{style.id}_{config.lut_size}_{lut_file_tag}.cube"
+                lut_content = generate_lut(
                     source_image,
                     target_image,
                     style.id,
                     lut_out,
                     sample_size=config.sample_size,
                     lut_size=config.lut_size,
+                    lut_space=config.lut_space,
                 )
                 lut_filename = lut_out.name
 
@@ -839,6 +939,7 @@ def run_pipeline(
                     "description": style.description,
                     "image_bytes": image_bytes,
                     "lut_filename": lut_filename,
+                    "lut_content": lut_content,
                 }
             )
 
@@ -991,6 +1092,7 @@ def create_app() -> Flask:
             doubao_api_key=str(settings.get("doubao_api_key", "")),
             analysis_model=str(settings.get("analysis_model", "gemini-1.5-flash")),
             image_model=str(settings.get("image_model", "gemini-1.5-flash")),
+            lut_space=normalize_lut_space(settings.get("lut_space", DEFAULT_LUT_SPACE)),
             current_user=session.get("username"),
             is_admin=is_admin,
             points_balance=points_balance,
@@ -1130,6 +1232,9 @@ def create_app() -> Flask:
             "yes",
             "on",
         }
+        lut_space = normalize_lut_space(
+            request.form.get("lut_space", settings.get("lut_space", DEFAULT_LUT_SPACE))
+        )
         debug_requests = request.form.get("debug_requests", "0").lower() in {
             "1",
             "true",
@@ -1139,6 +1244,11 @@ def create_app() -> Flask:
         style_ids = request.form.getlist("styles")
         if not style_ids:
             style_ids = [style.id for style in STYLE_PRESETS]
+
+        needs_url_input = analysis_model.startswith("doubao-") or image_model.startswith("doubao-")
+        qiniu_config = load_qiniu_config(settings)
+        if needs_url_input and not qiniu_config:
+            return jsonify({"error": "豆包模型需要配置七牛云以使用图片 URL 输入。"}), 400
 
         run_id = f"{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
         user_id = get_session_user_id()
@@ -1173,6 +1283,7 @@ def create_app() -> Flask:
             no_lut=not generate_lut_flag,
             sample_size=int(settings.get("sample_size", 128)),
             lut_size=int(settings.get("lut_size", 65)),
+            lut_space=lut_space,
             retries=int(settings.get("retries", 5)),
             debug_requests=bool(settings.get("debug_requests", False)),
         )
@@ -1189,6 +1300,29 @@ def create_app() -> Flask:
         image_b64 = base64.b64encode(image_bytes).decode("ascii")
         source_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
+        uploaded_files: Dict[str, str] = {}
+        image_url = None
+        if needs_url_input:
+            try:
+                source_upload_url = upload_to_qiniu(
+                    qiniu_config, source_path, f"{run_id}/{source_filename}"
+                )
+            except Exception as exc:
+                try:
+                    apply_points_change(
+                        database_url,
+                        user_id,
+                        cost,
+                        reason=POINTS_REASON_REFUND,
+                        source=POINTS_SOURCE_FILTER,
+                        note=f"upload_failed run_id={run_id}",
+                    )
+                except Exception:
+                    pass
+                return jsonify({"error": str(exc)}), 500
+            uploaded_files[source_filename] = source_upload_url
+            image_url = append_qiniu_image_suffix(source_upload_url)
+
         try:
             scene_description, results = run_pipeline(
                 config,
@@ -1196,6 +1330,7 @@ def create_app() -> Flask:
                 source_image,
                 mime_type,
                 style_ids,
+                image_url=image_url,
                 analysis_override=analysis_override or None,
                 debug_requests=debug_requests,
             )
@@ -1213,11 +1348,11 @@ def create_app() -> Flask:
                 pass
             return jsonify({"error": str(exc)}), 400
 
-        qiniu_config = load_qiniu_config(settings)
-        uploaded_files: Dict[str, str] = {}
         if qiniu_config:
             try:
-                uploaded_files = upload_run_outputs(out_dir, run_id, qiniu_config)
+                uploaded_files = upload_run_outputs(
+                    out_dir, run_id, qiniu_config, existing=uploaded_files
+                )
             except Exception as exc:
                 try:
                     apply_points_change(
@@ -1258,11 +1393,27 @@ def create_app() -> Flask:
             image_bytes = item["image_bytes"]
             image_base64 = base64.b64encode(image_bytes).decode("ascii")
             lut_filename = item.get("lut_filename")
+            lut_content = item.get("lut_content")
             lut_url = None
             if lut_filename:
                 lut_url = uploaded_files.get(lut_filename)
                 if not lut_url:
                     lut_url = f"/api/download/{out_dir.name}/{lut_filename}"
+                if lut_content:
+                    try:
+                        create_lut_record(
+                            database_url,
+                            user_id=user_id,
+                            run_id=out_dir.name,
+                            style_id=str(item.get("id", "")),
+                            lut_space=config.lut_space,
+                            lut_size=config.lut_size,
+                            lut_filename=lut_filename,
+                            lut_content=lut_content,
+                            lut_url=lut_url,
+                        )
+                    except Exception:
+                        pass
             image_filename = f"ref_{item['id']}.png"
             payload_results.append(
                 {
@@ -1327,12 +1478,42 @@ def create_app() -> Flask:
             no_lut=bool(settings.get("no_lut", False)),
             sample_size=int(settings.get("sample_size", 128)),
             lut_size=int(settings.get("lut_size", 65)),
+            lut_space=normalize_lut_space(settings.get("lut_space", DEFAULT_LUT_SPACE)),
             retries=int(settings.get("retries", 5)),
             debug_requests=bool(settings.get("debug_requests", False)),
         )
 
         mime_type = image_file.mimetype or "image/png"
         image_b64 = base64.b64encode(image_bytes).decode("ascii")
+        image_url = None
+        if analysis_model.startswith("doubao-"):
+            qiniu_config = load_qiniu_config(settings)
+            if not qiniu_config:
+                return jsonify({"error": "豆包模型需要配置七牛云以使用图片 URL 输入。"}), 400
+            original_suffix = Path(image_file.filename or "").suffix.lower()
+            if original_suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
+                original_suffix = extension_from_mime(mime_type) or ".png"
+            if original_suffix == ".jpeg":
+                original_suffix = ".jpg"
+            upload_id = f"stream-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
+            key = f"{upload_id}/source{original_suffix}"
+            temp_path: Path | None = None
+            try:
+                with tempfile.NamedTemporaryFile(
+                    prefix="ai_lut_", suffix=original_suffix, delete=False
+                ) as temp_file:
+                    temp_file.write(image_bytes)
+                    temp_path = Path(temp_file.name)
+                source_upload_url = upload_to_qiniu(qiniu_config, temp_path, key)
+            except Exception as exc:
+                return jsonify({"error": str(exc)}), 500
+            finally:
+                if temp_path:
+                    try:
+                        temp_path.unlink()
+                    except FileNotFoundError:
+                        pass
+            image_url = append_qiniu_image_suffix(source_upload_url)
 
         def generate():
             global DEBUG_REQUESTS_STATE
@@ -1340,7 +1521,11 @@ def create_app() -> Flask:
             DEBUG_REQUESTS_STATE = debug_requests or config.debug_requests
             try:
                 for chunk in stream_analyze_scene(
-                    image_b64, mime_type, config, config.retries
+                    image_b64,
+                    mime_type,
+                    config,
+                    config.retries,
+                    image_url=image_url,
                 ):
                     yield chunk
             finally:
@@ -1361,6 +1546,21 @@ def create_app() -> Flask:
         if safe_dir not in file_path.parents:
             return jsonify({"error": "非法路径。"}), 400
         if not file_path.exists():
+            if filename.lower().endswith(".cube"):
+                user_id = get_session_user_id()
+                if user_id:
+                    lut_content = fetch_lut_content(
+                        database_url,
+                        user_id=user_id,
+                        run_id=run_id,
+                        lut_filename=filename,
+                    )
+                    if lut_content:
+                        response = Response(lut_content, mimetype="text/plain; charset=utf-8")
+                        response.headers["Content-Disposition"] = (
+                            f'attachment; filename="{filename}"'
+                        )
+                        return response
             return jsonify({"error": "文件不存在。"}), 404
         return send_from_directory(safe_dir, filename, as_attachment=True)
 

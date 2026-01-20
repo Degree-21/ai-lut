@@ -159,6 +159,7 @@ def init_db(database_url: str) -> None:
                         ("user_points", "user_id"),
                         ("points_transactions", "user_id"),
                         ("analysis_records", "user_id"),
+                        ("analysis_luts", "user_id"),
                     ]
                     for table, user_col in tables:
                         if not await _table_exists(table):
@@ -257,6 +258,31 @@ def init_db(database_url: str) -> None:
                         INDEX idx_analysis_records_user (user_id),
                         INDEX idx_analysis_records_created (created_at),
                         CONSTRAINT fk_analysis_records_user
+                            FOREIGN KEY (user_id) REFERENCES users(id)
+                            ON DELETE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                    """
+                )
+                await cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS analysis_luts (
+                        id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        user_id BIGINT NOT NULL,
+                        run_id VARCHAR(64) NOT NULL,
+                        style_id VARCHAR(64) NOT NULL,
+                        lut_space VARCHAR(32) NOT NULL,
+                        lut_size INT NOT NULL,
+                        lut_filename VARCHAR(255) NOT NULL,
+                        lut_content MEDIUMTEXT NOT NULL,
+                        lut_url TEXT NULL,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                            ON UPDATE CURRENT_TIMESTAMP,
+                        INDEX idx_analysis_luts_user (user_id),
+                        INDEX idx_analysis_luts_run (run_id),
+                        INDEX idx_analysis_luts_style (style_id),
+                        UNIQUE KEY uniq_analysis_luts_filename (run_id, lut_filename),
+                        CONSTRAINT fk_analysis_luts_user
                             FOREIGN KEY (user_id) REFERENCES users(id)
                             ON DELETE CASCADE
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -482,6 +508,67 @@ def create_analysis_record(
             ),
         )
     )
+
+
+def create_lut_record(
+    database_url: str,
+    *,
+    user_id: int,
+    run_id: str,
+    style_id: str,
+    lut_space: str,
+    lut_size: int,
+    lut_filename: str,
+    lut_content: str,
+    lut_url: str | None,
+) -> None:
+    _run(
+        _execute(
+            database_url,
+            """
+            INSERT INTO analysis_luts
+                (user_id, run_id, style_id, lut_space, lut_size, lut_filename, lut_content, lut_url)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                lut_content = VALUES(lut_content),
+                lut_url = VALUES(lut_url)
+            """,
+            (
+                user_id,
+                run_id,
+                style_id,
+                lut_space,
+                lut_size,
+                lut_filename,
+                lut_content,
+                lut_url,
+            ),
+        )
+    )
+
+
+def fetch_lut_content(
+    database_url: str,
+    *,
+    user_id: int,
+    run_id: str,
+    lut_filename: str,
+) -> Optional[str]:
+    row = _run(
+        _execute(
+            database_url,
+            """
+            SELECT lut_content
+            FROM analysis_luts
+            WHERE user_id = %s AND run_id = %s AND lut_filename = %s
+            """,
+            (user_id, run_id, lut_filename),
+            fetchone=True,
+        )
+    )
+    if not row:
+        return None
+    return str(row.get("lut_content") or "")
 
 
 def list_analysis_records(
