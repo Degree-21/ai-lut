@@ -539,6 +539,45 @@ def create_analysis_record(
     )
 
 
+def update_analysis_record(
+    database_url: str,
+    *,
+    user_id: int,
+    run_id: str,
+    style_ids: List[str],
+    cost: int,
+    source_filename: str,
+    source_url: str,
+    analysis_text: str,
+    analysis_url: str,
+) -> None:
+    _run(
+        _execute(
+            database_url,
+            """
+            UPDATE analysis_records
+            SET style_ids = %s,
+                cost = %s,
+                source_filename = %s,
+                source_url = %s,
+                analysis_text = %s,
+                analysis_url = %s
+            WHERE user_id = %s AND run_id = %s
+            """,
+            (
+                ",".join(style_ids),
+                cost,
+                source_filename,
+                source_url,
+                analysis_text,
+                analysis_url,
+                user_id,
+                run_id,
+            ),
+        )
+    )
+
+
 def fetch_analysis_record(
     database_url: str, user_id: int, run_id: str
 ) -> Optional[Dict[str, object]]:

@@ -52,6 +52,7 @@ from user_store import (
     list_lut_records,
     list_points_transactions,
     mark_last_login,
+    update_analysis_record,
     upsert_settings,
 )
 
@@ -73,7 +74,7 @@ POINTS_SOURCE_FILTER = "generate"
 POINTS_REASON_REFUND = "filter_refund"
 ICP_RECORD = "闽ICP备2025083568号-1"
 DEFAULT_LUT_SPACE = "rec709_sdr"
-QINIU_IMAGE_SUFFIX = "?imageMogr2/thumbnail/400x/strip/format/jpg"
+QINIU_IMAGE_SUFFIX = "?imageMogr2/thumbnail/200x/strip/format/jpg"
 POINTS_REASON_LABELS = {
     POINTS_REASON_REGISTER: "注册赠送",
     POINTS_REASON_FILTER: "调色生成",
@@ -233,6 +234,13 @@ def clean_next_url(value: str | None) -> str | None:
     if not value.startswith("/") or value.startswith("//"):
         return None
     return value
+
+
+def is_safe_run_id(value: str) -> bool:
+    if not value:
+        return False
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+    return all(char in allowed for char in value)
 
 
 def login_required(view):
@@ -1416,10 +1424,20 @@ def create_app() -> Flask:
         if needs_url_input and not qiniu_config:
             return jsonify({"error": "豆包模型需要配置七牛云以使用图片 URL 输入。"}), 400
 
-        run_id = f"{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
+        requested_run_id = request.form.get("run_id", "").strip()
+        if requested_run_id and not is_safe_run_id(requested_run_id):
+            return jsonify({"error": "无效的任务编号。"}), 400
         user_id = get_session_user_id()
         if not user_id:
             return jsonify({"error": "未登录，请先登录。"}), 401
+        existing_record = None
+        if requested_run_id:
+            existing_record = fetch_analysis_record(database_url, user_id, requested_run_id)
+            if not existing_record:
+                return jsonify({"error": "记录不存在或无权限访问。"}), 404
+            run_id = requested_run_id
+        else:
+            run_id = f"{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
         cost = max(1, len(style_ids))
         try:
             apply_points_change(
@@ -1541,17 +1559,39 @@ def create_app() -> Flask:
         if not source_url:
             source_url = f"/api/download/{out_dir.name}/{source_filename}"
         try:
-            create_analysis_record(
-                database_url,
-                user_id=user_id,
-                run_id=run_id,
-                style_ids=style_ids,
-                cost=cost,
-                source_filename=source_filename,
-                source_url=source_url,
-                analysis_text=scene_description,
-                analysis_url=analysis_url,
-            )
+            if existing_record:
+                existing_style_ids = [
+                    item
+                    for item in str(existing_record.get("style_ids", "")).split(",")
+                    if item
+                ]
+                merged_style_ids = existing_style_ids + [
+                    item for item in style_ids if item not in existing_style_ids
+                ]
+                updated_cost = int(existing_record.get("cost") or 0) + cost
+                update_analysis_record(
+                    database_url,
+                    user_id=user_id,
+                    run_id=run_id,
+                    style_ids=merged_style_ids,
+                    cost=updated_cost,
+                    source_filename=source_filename,
+                    source_url=source_url,
+                    analysis_text=scene_description,
+                    analysis_url=analysis_url,
+                )
+            else:
+                create_analysis_record(
+                    database_url,
+                    user_id=user_id,
+                    run_id=run_id,
+                    style_ids=style_ids,
+                    cost=cost,
+                    source_filename=source_filename,
+                    source_url=source_url,
+                    analysis_text=scene_description,
+                    analysis_url=analysis_url,
+                )
         except Exception:
             pass
 

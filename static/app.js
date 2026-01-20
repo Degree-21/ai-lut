@@ -232,6 +232,9 @@ async function generateStyle(style, analysis) {
   }
   formData.append("debug_requests", elements.debugToggle.checked ? "1" : "0");
   formData.append("styles", style.id);
+  if (state.runId) {
+    formData.append("run_id", state.runId);
+  }
 
   const response = await fetch("/api/generate", {
     method: "POST",
@@ -245,7 +248,7 @@ async function generateStyle(style, analysis) {
   if (!result) {
     throw new Error("未获取到生成结果。");
   }
-  return { result, analysis: data.analysis || analysis };
+  return { result, analysis: data.analysis || analysis, runId: data.run_id || "" };
 }
 
 async function loadHistoryRecord(runId) {
@@ -256,7 +259,7 @@ async function loadHistoryRecord(runId) {
   setStatus(false, "");
   try {
     const response = await fetch(`/api/history/${encodeURIComponent(runId)}`);
-    const data = await response.json();
+    const data = await readJsonResponse(response);
     if (!response.ok) {
       throw new Error(data.error || "加载记录失败，请重试。");
     }
@@ -358,7 +361,10 @@ async function generateStyles() {
     for (let index = 0; index < STYLE_PRESETS.length; index += 1) {
       const style = STYLE_PRESETS[index];
       setStatus(true, `正在生成调色参考 (${index + 1}/${STYLE_PRESETS.length})...`);
-      const { result, analysis: mergedAnalysis } = await generateStyle(style, analysis);
+      const { result, analysis: mergedAnalysis, runId } = await generateStyle(style, analysis);
+      if (!state.runId && runId) {
+        state.runId = runId;
+      }
       state.analysis = mergedAnalysis;
       state.results.push(result);
       renderResults();
