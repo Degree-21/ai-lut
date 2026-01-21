@@ -36,6 +36,12 @@
             <span class="icon">📒</span>
             <h2>积分明细</h2>
           </div>
+          {% if run_id %}
+            <p class="field-hint">
+              当前筛选任务：{{ run_id }}
+              <a class="link-button" href="{{ url_for('points') }}">查看全部</a>
+            </p>
+          {% endif %}
           {% if transactions %}
             <div class="table-wrap">
               <table class="data-table">

@@ -1429,8 +1429,13 @@ def create_app() -> Flask:
     def points():
         user_id = get_session_user_id()
         balance = get_user_points(database_url, user_id) if user_id else 0
+        run_id = (request.args.get("run_id") or "").strip()
         transactions = (
-            list_points_transactions(database_url, user_id, limit=100) if user_id else []
+            list_points_transactions(
+                database_url, user_id, limit=100, run_id=run_id or None
+            )
+            if user_id
+            else []
         )
         for item in transactions:
             item["reason_label"] = POINTS_REASON_LABELS.get(
@@ -1447,6 +1452,7 @@ def create_app() -> Flask:
             current_user=session.get("username"),
             balance=balance,
             transactions=transactions,
+            run_id=run_id,
         )
 
     @app.route("/history")

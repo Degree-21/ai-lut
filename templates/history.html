@@ -47,7 +47,11 @@
                   {% for item in records %}
                     <tr>
                       <td>{{ item.created_at }}</td>
-                      <td>-{{ item.cost }}</td>
+                      <td>
+                        <a class="link-button" href="{{ url_for('points', run_id=item.run_id) }}">
+                          -{{ item.cost }}
+                        </a>
+                      </td>
                       <td>{{ item.style_ids }}</td>
                       <td>
                         {% if item.source_url %}

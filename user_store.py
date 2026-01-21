@@ -443,15 +443,23 @@ def get_user_points(database_url: str, user_id: int) -> int:
 
 
 def list_points_transactions(
-    database_url: str, user_id: int, limit: int = 50
+    database_url: str,
+    user_id: int,
+    limit: int = 50,
+    run_id: str | None = None,
 ) -> List[Dict[str, object]]:
     safe_limit = max(1, min(int(limit), 200))
+    params: List[object] = [user_id]
     query = (
         "SELECT id, change_amount, balance_after, reason, source, note, created_at "
-        "FROM points_transactions WHERE user_id = %s "
-        "ORDER BY id DESC LIMIT %s"
+        "FROM points_transactions WHERE user_id = %s"
     )
-    return _run(_fetch_all(database_url, query, (user_id, safe_limit)))
+    if run_id:
+        query += " AND note LIKE %s"
+        params.append(f"%run_id={run_id}%")
+    query += " ORDER BY id DESC LIMIT %s"
+    params.append(safe_limit)
+    return _run(_fetch_all(database_url, query, tuple(params)))
 
 
 def apply_points_change(
