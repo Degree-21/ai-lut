@@ -68,6 +68,35 @@
               </div>
 
               <div class="field">
+                <label for="scene-type">场景类型</label>
+                <select id="scene-type" class="select-input">
+                  <option value="auto" {% if scene_type == "auto" %}selected{% endif %}>自动</option>
+                  <option value="portrait" {% if scene_type == "portrait" %}selected{% endif %}>人像</option>
+                  <option value="landscape" {% if scene_type == "landscape" %}selected{% endif %}>风光</option>
+                  <option value="city" {% if scene_type == "city" %}selected{% endif %}>城市/建筑</option>
+                  <option value="night" {% if scene_type == "night" %}selected{% endif %}>夜景</option>
+                  <option value="indoor" {% if scene_type == "indoor" %}selected{% endif %}>室内</option>
+                </select>
+                <p class="field-hint">人像会保护肤色，风光会增强色彩分离。</p>
+              </div>
+
+              <div class="field">
+                <label for="style-strength">
+                  风格强度 <span id="style-strength-value">{{ style_strength_percent }}%</span>
+                </label>
+                <input
+                  id="style-strength"
+                  class="range-input"
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="5"
+                  value="{{ style_strength_percent }}"
+                />
+                <p class="field-hint">强度越高风格化越明显，建议人像 30-60。</p>
+              </div>
+
+              <div class="field">
                 <label for="lut-space">LUT 色彩空间</label>
                 <select id="lut-space" class="select-input">
                   <option value="rec709_sdr" {% if lut_space == "rec709_sdr" %}selected{% endif %}>

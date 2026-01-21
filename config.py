@@ -19,6 +19,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "sample_size": 128,
     "lut_size": 65,
     "lut_space": "rec709_sdr",
+    "scene_type": "auto",
+    "style_strength": 0.7,
     "retries": 5,
     "debug_requests": False,
     "database_url": "mysql://ai_lut:ai_lut_password@localhost:3306/ai_lut?charset=utf8mb4",

@@ -23,6 +23,9 @@ const elements = {
   resetButton: document.getElementById("reset-button"),
   lutToggle: document.getElementById("lut-toggle"),
   lutSpace: document.getElementById("lut-space"),
+  sceneType: document.getElementById("scene-type"),
+  styleStrength: document.getElementById("style-strength"),
+  styleStrengthValue: document.getElementById("style-strength-value"),
   debugToggle: document.getElementById("debug-toggle"),
   generateButton: document.getElementById("generate-button"),
   regenerateButton: document.getElementById("regenerate-button"),
@@ -103,6 +106,19 @@ elements.generateButton.addEventListener("click", () => {
 elements.regenerateButton.addEventListener("click", () => {
   generateStyles();
 });
+
+function syncStyleStrength() {
+  if (!elements.styleStrength || !elements.styleStrengthValue) {
+    return;
+  }
+  const value = Number(elements.styleStrength.value || 0);
+  elements.styleStrengthValue.textContent = `${value}%`;
+}
+
+if (elements.styleStrength) {
+  syncStyleStrength();
+  elements.styleStrength.addEventListener("input", syncStyleStrength);
+}
 
 const params = new URLSearchParams(window.location.search);
 const historyRunId = params.get("run_id");
@@ -229,6 +245,12 @@ async function generateStyle(style, analysis) {
   formData.append("generate_lut", elements.lutToggle.checked ? "1" : "0");
   if (elements.lutSpace) {
     formData.append("lut_space", elements.lutSpace.value);
+  }
+  if (elements.sceneType) {
+    formData.append("scene_type", elements.sceneType.value);
+  }
+  if (elements.styleStrength) {
+    formData.append("style_strength", elements.styleStrength.value);
   }
   formData.append("debug_requests", elements.debugToggle.checked ? "1" : "0");
   formData.append("styles", style.id);

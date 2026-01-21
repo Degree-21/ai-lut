@@ -74,6 +74,8 @@ POINTS_SOURCE_FILTER = "generate"
 POINTS_REASON_REFUND = "filter_refund"
 ICP_RECORD = "闽ICP备2025083568号-1"
 DEFAULT_LUT_SPACE = "rec709_sdr"
+DEFAULT_SCENE_TYPE = "auto"
+DEFAULT_STYLE_STRENGTH = 0.7
 QINIU_IMAGE_SUFFIX = "?imageMogr2/thumbnail/200x/strip/format/jpg"
 POINTS_REASON_LABELS = {
     POINTS_REASON_REGISTER: "注册赠送",
@@ -122,6 +124,50 @@ LUT_SPACE_PRESETS = {
     },
 }
 
+SCENE_TYPE_PRESETS = {
+    "auto": {
+        "label": "自动",
+        "prompt": "",
+        "chroma_scale": 1.0,
+    },
+    "portrait": {
+        "label": "人像",
+        "prompt": (
+            "Portrait scene. Preserve natural skin tones, avoid hue shifts, "
+            "keep skin texture clean and realistic."
+        ),
+        "chroma_scale": 0.55,
+    },
+    "landscape": {
+        "label": "风光",
+        "prompt": (
+            "Landscape scene. Keep skies and foliage natural, avoid oversaturation."
+        ),
+        "chroma_scale": 1.0,
+    },
+    "city": {
+        "label": "城市/建筑",
+        "prompt": (
+            "Urban/architecture scene. Keep neutral grays stable, avoid neon clipping."
+        ),
+        "chroma_scale": 0.9,
+    },
+    "night": {
+        "label": "夜景",
+        "prompt": (
+            "Night scene. Preserve highlight detail, avoid crushed blacks and color clipping."
+        ),
+        "chroma_scale": 0.8,
+    },
+    "indoor": {
+        "label": "室内",
+        "prompt": (
+            "Indoor scene. Maintain realistic white balance, avoid strong color casts."
+        ),
+        "chroma_scale": 0.8,
+    },
+}
+
 
 def normalize_lut_space(value: str | None) -> str:
     if not value:
@@ -152,6 +198,84 @@ def get_lut_space_info(lut_space: str | None) -> Tuple[str, float, str, str]:
     normalized = normalize_lut_space(lut_space)
     info = LUT_SPACE_PRESETS[normalized]
     return normalized, float(info["gamma"]), str(info["file_tag"]), str(info["label"])
+
+
+def normalize_scene_type(value: str | None) -> str:
+    if not value:
+        return DEFAULT_SCENE_TYPE
+    key = str(value).strip().lower().replace(" ", "")
+    aliases = {
+        "auto": "auto",
+        "automatic": "auto",
+        "portrait": "portrait",
+        "people": "portrait",
+        "person": "portrait",
+        "human": "portrait",
+        "face": "portrait",
+        "人像": "portrait",
+        "landscape": "landscape",
+        "scenery": "landscape",
+        "风光": "landscape",
+        "city": "city",
+        "urban": "city",
+        "architecture": "city",
+        "城市": "city",
+        "night": "night",
+        "夜景": "night",
+        "indoor": "indoor",
+        "interior": "indoor",
+        "室内": "indoor",
+    }
+    return aliases.get(key, DEFAULT_SCENE_TYPE)
+
+
+def get_scene_profile(scene_type: str | None) -> Dict[str, object]:
+    normalized = normalize_scene_type(scene_type)
+    return SCENE_TYPE_PRESETS[normalized]
+
+
+def normalize_style_strength(value: object) -> float:
+    if value is None or value == "":
+        return DEFAULT_STYLE_STRENGTH
+    try:
+        strength = float(value)
+    except (TypeError, ValueError):
+        return DEFAULT_STYLE_STRENGTH
+    if strength > 1.0:
+        if strength <= 100.0:
+            strength = strength / 100.0
+        else:
+            strength = 1.0
+    return max(0.0, min(1.0, strength))
+
+
+def describe_style_strength(strength: float) -> str:
+    if strength <= 0.35:
+        return "subtle"
+    if strength <= 0.7:
+        return "balanced"
+    return "pronounced"
+
+
+def build_style_prompt(scene_description: str, style: StylePreset, config: AppConfig) -> str:
+    scene_profile = get_scene_profile(config.scene_type)
+    scene_hint = str(scene_profile.get("prompt", "")).strip()
+    strength = normalize_style_strength(config.style_strength)
+    strength_label = describe_style_strength(strength)
+    parts = [
+        f"A professional movie frame with {style.name} color grade. {style.description}.",
+        f"Base scene description: {scene_description}.",
+    ]
+    if scene_hint:
+        parts.append(scene_hint)
+    parts.append(
+        f"Intensity: {strength_label} color grading, refined and controlled."
+    )
+    parts.append(
+        "CRITICAL: Keep the original composition, subject identity, and physical structure 100% identical."
+    )
+    parts.append("Only change lighting and color grading. High detail, cinematic lighting, 4k quality.")
+    return " ".join(parts)
 
 
 class ColorTools:
@@ -203,6 +327,8 @@ class AppConfig:
     sample_size: int
     lut_size: int
     lut_space: str
+    scene_type: str
+    style_strength: float
     retries: int
     debug_requests: bool
 
@@ -418,6 +544,10 @@ def load_config() -> AppConfig:
     sample_size = int(settings.get("sample_size", 128))
     lut_size = int(settings.get("lut_size", 65))
     lut_space = normalize_lut_space(settings.get("lut_space", DEFAULT_LUT_SPACE))
+    scene_type = normalize_scene_type(settings.get("scene_type", DEFAULT_SCENE_TYPE))
+    style_strength = normalize_style_strength(
+        settings.get("style_strength", DEFAULT_STYLE_STRENGTH)
+    )
     retries = int(settings.get("retries", 5))
     return AppConfig(
         image_path=image_path,
@@ -431,6 +561,8 @@ def load_config() -> AppConfig:
         sample_size=sample_size,
         lut_size=lut_size,
         lut_space=lut_space,
+        scene_type=scene_type,
+        style_strength=style_strength,
         retries=retries,
         debug_requests=bool(settings.get("debug_requests", False)),
     )
@@ -843,14 +975,10 @@ def generate_style_image(
             raise RuntimeError("未提供豆包 API Key，请通过环境变量 ARK_API_KEY 设置。")
         url = "https://ark.cn-beijing.volces.com/api/v3/images/generations"
         image_input = resolve_doubao_image_input(image_b64, mime_type, image_url)
+        prompt = build_style_prompt(scene_description, style, config)
         payload = {
             "model": config.image_model,
-            "prompt": (
-                f"A professional movie frame with {style.name} color grade. {style.description}."
-                f" Base scene description: {scene_description}."
-                " CRITICAL: Keep the original composition, subject identity, and physical structure 100% identical."
-                " Only change lighting and color grading. High detail, cinematic lighting, 4k quality."
-            ),
+            "prompt": prompt,
             "image": [image_input],
             "size": "2k",
             "watermark": False,
@@ -864,12 +992,7 @@ def generate_style_image(
     else:
         if not config.api_key:
             raise RuntimeError("未提供 API Key，请通过环境变量 GOOGLE_API_KEY/GEMINI_API_KEY/API_KEY 设置。")
-        prompt = (
-            f"A professional movie frame with {style.name} color grade. {style.description}."
-            f" Base scene description: {scene_description}."
-            " CRITICAL: Keep the original composition, subject identity, and physical structure 100% identical."
-            " Only change lighting and color grading. High detail, cinematic lighting, 4k quality."
-        )
+        prompt = build_style_prompt(scene_description, style, config)
         payload = {
             "contents": [
                 {
@@ -935,8 +1058,14 @@ def generate_lut(
         sample_size: int = 128,
         lut_size: int = 65,
         lut_space: str = DEFAULT_LUT_SPACE,
+        scene_type: str = DEFAULT_SCENE_TYPE,
+        style_strength: float = DEFAULT_STYLE_STRENGTH,
 ) -> str:
     _, gamma, file_tag, space_label = get_lut_space_info(lut_space)
+    scene_profile = get_scene_profile(scene_type)
+    chroma_scale = float(scene_profile.get("chroma_scale", 1.0))
+    strength = normalize_style_strength(style_strength)
+    chroma_strength = strength * chroma_scale
     src_hist = extract_histogram(source, sample_size, gamma)
     tgt_hist = extract_histogram(target, sample_size, gamma)
 
@@ -966,13 +1095,19 @@ def generate_lut(
             for r in range(lut_size):
                 lr = linear_levels[r]
                 L, a, b_val = ColorTools.rgb_to_oklab(np.array(lr), np.array(lg), np.array(lb))
+                L = float(L)
+                a = float(a)
+                b_val = float(b_val)
                 l_idx = int(np.clip(np.floor(L * 255), 0, 255))
                 a_idx = int(np.clip(np.floor((a + 0.4) * (255 / 0.8)), 0, 255))
                 b_idx = int(np.clip(np.floor((b_val + 0.4) * (255 / 0.8)), 0, 255))
-                nL = lookups["L"][l_idx] / 255.0
-                na = (lookups["a"][a_idx] / (255 / 0.8)) - 0.4
-                nb = (lookups["b"][b_idx] / (255 / 0.8)) - 0.4
-                fr, fg, fb = ColorTools.oklab_to_rgb(nL, na, nb)
+                nL = float(lookups["L"][l_idx] / 255.0)
+                na = float((lookups["a"][a_idx] / (255 / 0.8)) - 0.4)
+                nb = float((lookups["b"][b_idx] / (255 / 0.8)) - 0.4)
+                out_L = L + strength * (nL - L)
+                out_a = a + chroma_strength * (na - a)
+                out_b = b_val + chroma_strength * (nb - b_val)
+                fr, fg, fb = ColorTools.oklab_to_rgb(out_L, out_a, out_b)
                 fr = ColorTools.linear_to_gamma(np.array(fr), gamma)
                 fg = ColorTools.linear_to_gamma(np.array(fg), gamma)
                 fb = ColorTools.linear_to_gamma(np.array(fb), gamma)
@@ -1044,6 +1179,8 @@ def run_pipeline(
                     sample_size=config.sample_size,
                     lut_size=config.lut_size,
                     lut_space=config.lut_space,
+                    scene_type=config.scene_type,
+                    style_strength=config.style_strength,
                 )
                 lut_filename = lut_out.name
 
@@ -1201,6 +1338,10 @@ def create_app() -> Flask:
         is_admin = is_admin_user(settings, session.get("username"))
         user_id = get_session_user_id()
         points_balance = get_user_points(database_url, user_id) if user_id else 0
+        scene_type = normalize_scene_type(settings.get("scene_type", DEFAULT_SCENE_TYPE))
+        style_strength = normalize_style_strength(
+            settings.get("style_strength", DEFAULT_STYLE_STRENGTH)
+        )
         return render_template(
             "index.html",
             api_key=str(settings.get("api_key", "")) if is_admin else "",
@@ -1208,6 +1349,8 @@ def create_app() -> Flask:
             analysis_model=str(settings.get("analysis_model", "gemini-1.5-flash")),
             image_model=str(settings.get("image_model", "gemini-1.5-flash")),
             lut_space=normalize_lut_space(settings.get("lut_space", DEFAULT_LUT_SPACE)),
+            scene_type=scene_type,
+            style_strength_percent=int(round(style_strength * 100)),
             current_user=session.get("username"),
             is_admin=is_admin,
             points_balance=points_balance,
@@ -1468,6 +1611,12 @@ def create_app() -> Flask:
             sample_size=int(settings.get("sample_size", 128)),
             lut_size=int(settings.get("lut_size", 65)),
             lut_space=lut_space,
+            scene_type=normalize_scene_type(
+                request.form.get("scene_type", settings.get("scene_type", DEFAULT_SCENE_TYPE))
+            ),
+            style_strength=normalize_style_strength(
+                request.form.get("style_strength", settings.get("style_strength", DEFAULT_STYLE_STRENGTH))
+            ),
             retries=int(settings.get("retries", 5)),
             debug_requests=bool(settings.get("debug_requests", False)),
         )
@@ -1700,6 +1849,10 @@ def create_app() -> Flask:
             sample_size=int(settings.get("sample_size", 128)),
             lut_size=int(settings.get("lut_size", 65)),
             lut_space=normalize_lut_space(settings.get("lut_space", DEFAULT_LUT_SPACE)),
+            scene_type=normalize_scene_type(settings.get("scene_type", DEFAULT_SCENE_TYPE)),
+            style_strength=normalize_style_strength(
+                settings.get("style_strength", DEFAULT_STYLE_STRENGTH)
+            ),
             retries=int(settings.get("retries", 5)),
             debug_requests=bool(settings.get("debug_requests", False)),
         )
