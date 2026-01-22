@@ -17,7 +17,7 @@
             <div class="header-actions">
               <span class="user-badge">你好，{{ current_user|e }}</span>
               <span class="user-badge">积分：{{ points_balance }}</span>
-              <!-- <a class="link-button" href="{{ url_for('main.pricing') }}">购买积分</a> -->
+              {# <a class="link-button" href="{{ url_for('main.pricing') }}">购买积分</a> #}
               <a class="link-button" href="{{ url_for('main.points') }}">积分记录</a>
               <a class="link-button" href="{{ url_for('main.history') }}">解析记录</a>
               {% if is_admin %}
