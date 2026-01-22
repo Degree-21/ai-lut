@@ -96,12 +96,46 @@ class StylePreset:
 
 
 STYLE_PRESETS = [
-    StylePreset("cinematic", "好莱坞电影", "青橙色调 (Teal & Orange)，高对比度，深邃阴影，极具戏剧感。"),
-    StylePreset("vintage", "经典胶片", "Kodak 暖黄色调，柔和的高光溢出，低饱和度，怀旧质感。"),
-    StylePreset("minimal", "清新日系", "高调照明 (High-key)，低对比度，淡蓝色或偏白影调，干净明亮。"),
-    StylePreset("noir", "暗黑悬疑", "低色温，强调阴影细节，冷峻的青蓝色系，压抑且迷人。"),
-    StylePreset("commercial", "时尚商业", "高饱和，色彩还原准确且明亮，光影分布均匀，质感通透。"),
-    StylePreset("cyber", "赛博都市", "霓虹冷暖色差，强烈的紫色与青色碰撞，极具现代冲击力。"),
+    StylePreset(
+        "blue_gold",
+        "蓝金色调",
+        "主色蓝、辅色金黄/橙黄，冷天暖光，通透壮阔，适合日出日落、云海、雪山。",
+    ),
+    StylePreset(
+        "teal_orange",
+        "青橙色调",
+        "主色青、辅色橙，冷暖强对冲，戏剧化冲击，适合大场景与强光向。",
+    ),
+    StylePreset(
+        "blue_cyan",
+        "蓝青冷色调",
+        "整体偏冷，极简克制，冷静空旷，适合雪山、极地、清晨或暴风雨。",
+    ),
+    StylePreset(
+        "warm_golden",
+        "暖橙金色调",
+        "暖色主导，少量蓝青平衡，温暖厚重，适合秋季森林、沙漠、丹霞。",
+    ),
+    StylePreset(
+        "blue_green",
+        "蓝绿色调",
+        "蓝绿主导，少量黄点缀，清新自然，适合草原、湖泊、夏季山地。",
+    ),
+    StylePreset(
+        "muted_nordic",
+        "灰蓝低饱和",
+        "灰蓝/灰青低饱和，安静克制，高级感，适合阴天、雾景、北欧风光。",
+    ),
+    StylePreset(
+        "monotone",
+        "单色倾向",
+        "单一色相主导，极简强情绪，适合雾、雪、剪影等极简场景。",
+    ),
+    StylePreset(
+        "black_white",
+        "黑白/准黑白",
+        "以明暗结构为主，强调纹理与力量，适合高反差地形与强纹理。",
+    ),
 ]
 
 

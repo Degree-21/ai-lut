@@ -1,10 +1,44 @@
 const STYLE_PRESETS = [
-  { id: "cinematic", name: "好莱坞电影", description: "青橙色调 (Teal & Orange)，高对比度，深邃阴影，极具戏剧感。" },
-  { id: "vintage", name: "经典胶片", description: "Kodak 暖黄色调，柔和的高光溢出，低饱和度，怀旧质感。" },
-  { id: "minimal", name: "清新日系", description: "高调照明 (High-key)，低对比度，淡蓝色或偏白影调，干净明亮。" },
-  { id: "noir", name: "暗黑悬疑", description: "低色温，强调阴影细节，冷峻的青蓝色系，压抑且迷人。" },
-  { id: "commercial", name: "时尚商业", description: "高饱和，色彩还原准确且明亮，光影分布均匀，质感通透。" },
-  { id: "cyber", name: "赛博都市", description: "霓虹冷暖色差，强烈的紫色与青色碰撞，极具现代冲击力。" }
+  {
+    id: "blue_gold",
+    name: "蓝金色调",
+    description: "主色蓝、辅色金黄/橙黄，冷天暖光，通透壮阔，适合日出日落、云海、雪山。"
+  },
+  {
+    id: "teal_orange",
+    name: "青橙色调",
+    description: "主色青、辅色橙，冷暖强对冲，戏剧化冲击，适合大场景与强光向。"
+  },
+  {
+    id: "blue_cyan",
+    name: "蓝青冷色调",
+    description: "整体偏冷，极简克制，冷静空旷，适合雪山、极地、清晨或暴风雨。"
+  },
+  {
+    id: "warm_golden",
+    name: "暖橙金色调",
+    description: "暖色主导，少量蓝青平衡，温暖厚重，适合秋季森林、沙漠、丹霞。"
+  },
+  {
+    id: "blue_green",
+    name: "蓝绿色调",
+    description: "蓝绿主导，少量黄点缀，清新自然，适合草原、湖泊、夏季山地。"
+  },
+  {
+    id: "muted_nordic",
+    name: "灰蓝低饱和",
+    description: "灰蓝/灰青低饱和，安静克制，高级感，适合阴天、雾景、北欧风光。"
+  },
+  {
+    id: "monotone",
+    name: "单色倾向",
+    description: "单一色相主导，极简强情绪，适合雾、雪、剪影等极简场景。"
+  },
+  {
+    id: "black_white",
+    name: "黑白/准黑白",
+    description: "以明暗结构为主，强调纹理与力量，适合高反差地形与强纹理。"
+  }
 ];
 
 const state = {
@@ -163,7 +197,7 @@ function renderEmptyState() {
     <div class="empty-card">
       <div class="empty-icon">🎬</div>
       <h3>准备就绪</h3>
-      <p>上传静帧后，AI 将基于场景分析生成 6 种调色参考。</p>
+      <p>上传静帧后，AI 将基于场景分析生成 8 种调色参考。</p>
     </div>
   `;
 }
