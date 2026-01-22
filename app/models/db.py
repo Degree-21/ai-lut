@@ -646,10 +646,10 @@ def create_lut_record(
             """
             INSERT INTO analysis_luts
                 (user_id, run_id, style_id, lut_space, lut_size, lut_filename, lut_content, lut_url)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s) AS new
             ON DUPLICATE KEY UPDATE
-                lut_content = VALUES(lut_content),
-                lut_url = VALUES(lut_url)
+                lut_content = new.lut_content,
+                lut_url = new.lut_url
             """,
             (
                 user_id,
