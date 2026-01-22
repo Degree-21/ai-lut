@@ -15,6 +15,12 @@ body {
   padding: 24px 16px 48px;
 }
 
+@media (max-width: 640px) {
+  .page {
+    padding: 12px 12px 24px;
+  }
+}
+
 .container {
   max-width: 1200px;
   margin: 0 auto;
@@ -105,6 +111,40 @@ body {
 @media (min-width: 1024px) {
   .grid {
     grid-template-columns: 1.1fr 1.9fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  
+  .header-row {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+  
+  .header-row .title {
+    justify-content: center;
+    width: 100%;
+  }
+  
+  .header-row .header-actions {
+    width: 100%;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: 16px;
+    gap: 8px;
+  }
+  
+  .title h1 {
+    font-size: 28px;
+  }
+  
+  .card {
+    padding: 16px;
   }
 }
 
@@ -582,7 +622,13 @@ body {
 
 @media (min-width: 1024px) {
   .results {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .results {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -599,8 +645,10 @@ body {
 .result-image {
   width: 100%;
   aspect-ratio: 16 / 9;
-  object-fit: cover;
+  object-fit: contain;
+  background: #f1f5f9;
   transition: transform 0.4s ease;
+  padding: 12px;
 }
 
 .result-card:hover .result-image {

@@ -4,6 +4,7 @@ import time
 import uuid
 import base64
 import tempfile
+import json
 from pathlib import Path
 from typing import Dict
 
@@ -20,6 +21,7 @@ from app.services.storage import load_qiniu_config, upload_to_qiniu, upload_run_
 from app.services.pipeline import run_pipeline
 from app.services.styles import STYLE_PRESETS, normalize_lut_space, normalize_scene_type
 from app.services.ai import stream_analyze_scene, resolve_doubao_image_input
+from app.services.grsai import generate_image_stream
 from app.utils.auth import login_required, get_session_user_id
 from app.utils.common import is_safe_run_id, normalize_style_strength, require_dependencies
 from app.utils.image import normalize_image_input, resolve_image_suffix, is_heif_image, HEIF_EXTENSIONS, guess_mime_type
@@ -137,6 +139,9 @@ def api_generate():
         ),
         retries=int(settings.get("retries", 5)),
         debug_requests=bool(settings.get("debug_requests", False)),
+        grsai_api_key=str(settings.get("grsai_api_key", "")),
+        grsai_api_url=str(settings.get("grsai_api_url", "https://grsai.dakka.com.cn/v1/draw/completions")),
+        grsai_model=str(settings.get("grsai_model", "gpt-image-1.5")),
     )
 
     try:
@@ -374,6 +379,9 @@ def api_analyze_stream():
         ),
         retries=int(settings.get("retries", 5)),
         debug_requests=bool(settings.get("debug_requests", False)),
+        grsai_api_key=str(settings.get("grsai_api_key", "")),
+        grsai_api_url=str(settings.get("grsai_api_url", "https://grsai.dakka.com.cn/v1/draw/completions")),
+        grsai_model=str(settings.get("grsai_model", "gpt-image-1.5")),
     )
 
     mime_type = (image_file.mimetype or "").strip().lower()
@@ -433,5 +441,61 @@ def api_analyze_stream():
     return Response(
         stream_with_context(generate()),
         mimetype="text/plain; charset=utf-8",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+@bp.route("/api/generate_image", methods=["POST"])
+@login_required
+def api_generate_image():
+    database_url = current_app.config["DATABASE_URL"]
+    settings = load_effective_settings(database_url)
+    
+    # Construct AppConfig with all required fields (using defaults for irrelevant ones)
+    config = AppConfig(
+        image_path=Path("input.png"),
+        api_key="",
+        doubao_api_key="",
+        analysis_model="",
+        image_model="",
+        out_dir=Path("outputs"),
+        styles="",
+        no_lut=True,
+        sample_size=0,
+        lut_size=0,
+        lut_space="",
+        scene_type="",
+        style_strength=0.0,
+        retries=int(settings.get("retries", 3)),
+        debug_requests=bool(settings.get("debug_requests", False)),
+        grsai_api_key=str(settings.get("grsai_api_key", "")),
+        grsai_api_url=str(settings.get("grsai_api_url", "https://grsai.dakka.com.cn/v1/draw/completions")),
+        grsai_model=str(settings.get("grsai_model", "gpt-image-1.5")),
+    )
+    
+    prompt = request.form.get("prompt", "").strip()
+    if not prompt:
+        return jsonify({"error": "请输入提示词"}), 400
+        
+    size = request.form.get("size", "1:1")
+    try:
+        variants = int(request.form.get("variants", 1))
+    except ValueError:
+        variants = 1
+        
+    urls = request.form.getlist("urls")
+    
+    # Point deduction logic could be added here
+    
+    def generate():
+        try:
+            for chunk in generate_image_stream(prompt, config, size, variants, urls):
+                yield chunk
+        except Exception as exc:
+            # Yield error as a JSON object in the stream
+            yield json.dumps({"error": str(exc)})
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache"},
     )

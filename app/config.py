@@ -35,6 +35,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "qiniu_secret_key": "",
     "qiniu_bucket": "",
     "qiniu_domain": "https://qn.3xx3x.cn",
+    "grsai_api_key": "",
+    "grsai_api_url": "https://grsai.dakka.com.cn/v1/draw/completions",
+    "grsai_model": "gpt-image-1.5",
 }
 
 DEFAULT_LUT_SPACE = "rec709_sdr"
@@ -85,6 +88,9 @@ class AppConfig:
     style_strength: float
     retries: int
     debug_requests: bool
+    grsai_api_key: str
+    grsai_api_url: str
+    grsai_model: str
 
 
 def env_flag(name: str, default: str = "0") -> bool:
@@ -158,6 +164,14 @@ def load_settings(config_path: str | Path = "config.yaml") -> Dict[str, Any]:
     qiniu_domain_env = os.getenv("QINIU_DOMAIN")
     if qiniu_domain_env:
         settings["qiniu_domain"] = qiniu_domain_env
+
+    grsai_api_key_env = os.getenv("GRSAI_API_KEY")
+    if grsai_api_key_env:
+        settings["grsai_api_key"] = grsai_api_key_env
+    
+    grsai_api_url_env = os.getenv("GRSAI_API_URL")
+    if grsai_api_url_env:
+        settings["grsai_api_url"] = grsai_api_url_env
 
     if not settings.get("api_key") and settings.get("doubao_api_key"):
         settings["api_key"] = settings["doubao_api_key"]

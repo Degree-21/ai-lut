@@ -29,19 +29,20 @@
         <section class="card auth-card">
           <div class="auth-grid">
             <div class="auth-aside">
-              <div class="auth-badge">开始你的调色旅程</div>
-              <h2>创建账号</h2>
-              <p>完成注册后即可体验完整的影像调色建议与 LUT 导出。</p>
+              <div class="auth-badge">注册即送 50 积分</div>
+              <h2>加入 AI LUT Creator</h2>
+              <p>体验好莱坞级色彩科学，让每一帧画面都拥有电影质感。</p>
               <ul class="auth-list">
-                <li>多风格影调一键生成</li>
-                <li>实时输出分析文本</li>
-                <li>私有化本地部署</li>
+                <li>🎨 16+ 款大师级调色预设</li>
+                <li>🧠 AI 深度场景解析技术</li>
+                <li>⚡️ 实时生成 3D LUT 文件</li>
+                <li>🎁 新用户注册立领 50 积分</li>
               </ul>
             </div>
             <div class="auth-form-panel">
               <div class="card-title auth-title">
-                <span class="icon">📝</span>
-                <h2>创建账号</h2>
+                <span class="icon">✨</span>
+                <h2>免费注册</h2>
               </div>
               <form method="post" class="auth-form">
                 <div class="field">
@@ -64,7 +65,7 @@
                     <button class="ghost-button toggle-password" type="button" data-target="confirm">显示</button>
                   </div>
                 </div>
-                <button class="primary-button" type="submit">注册并登录</button>
+                <button class="primary-button" type="submit">立即注册，开启色彩之旅</button>
               </form>
               <div class="auth-footer">
                 已有账号？<a class="link-button" href="{{ url_for('auth.login') }}">返回登录</a>
@@ -76,7 +77,7 @@
     </div>
     {% if icp_record %}
       <footer class="container footer">
-        <a class="icp-record" href="https://beian.miit.gov.cn" target="_blank" rel="noopener">
+        <a class="icp-record" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">
           {{ icp_record }}
         </a>
       </footer>

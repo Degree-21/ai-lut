@@ -69,7 +69,7 @@ def register():
                 )
                 bonus_points = int(
                     load_effective_settings(database_url).get(
-                        "register_bonus_points", 0
+                        "register_bonus_points", 50
                     )
                 )
                 if bonus_points > 0:

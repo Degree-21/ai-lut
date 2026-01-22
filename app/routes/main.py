@@ -56,6 +56,22 @@ def index():
         points_balance=points_balance,
     )
 
+@bp.route("/image-gen")
+@login_required
+def image_gen():
+    database_url = current_app.config["DATABASE_URL"]
+    settings = load_effective_settings(database_url)
+    user_id = get_session_user_id()
+    points_balance = get_user_points(database_url, user_id) if user_id else 0
+    is_admin = is_admin_user(settings, session.get("username"))
+    
+    return render_template(
+        "image_gen.html",
+        current_user=session.get("username"),
+        points_balance=points_balance,
+        is_admin=is_admin,
+    )
+
 @bp.route("/points")
 @login_required
 def points():
