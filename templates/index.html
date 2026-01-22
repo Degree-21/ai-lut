@@ -17,12 +17,13 @@
             <div class="header-actions">
               <span class="user-badge">你好，{{ current_user|e }}</span>
               <span class="user-badge">积分：{{ points_balance }}</span>
-              <a class="link-button" href="{{ url_for('points') }}">积分记录</a>
-              <a class="link-button" href="{{ url_for('history') }}">解析记录</a>
+              <a class="link-button" href="{{ url_for('main.pricing') }}">购买积分</a>
+              <a class="link-button" href="{{ url_for('main.points') }}">积分记录</a>
+              <a class="link-button" href="{{ url_for('main.history') }}">解析记录</a>
               {% if is_admin %}
-                <a class="link-button" href="{{ url_for('admin_config') }}">系统配置</a>
+                <a class="link-button" href="{{ url_for('main.admin_config') }}">系统配置</a>
               {% endif %}
-              <a class="link-button" href="{{ url_for('logout') }}">退出</a>
+              <a class="link-button" href="{{ url_for('auth.logout') }}">退出</a>
             </div>
           {% endif %}
         </div>
@@ -67,15 +68,15 @@
                 </label>
               </div>
 
-              <div class="field">
+              <div class="field hidden">
                 <label for="scene-type">场景类型</label>
                 <select id="scene-type" class="select-input">
-                  <option value="auto" {% if scene_type == "auto" %}selected{% endif %}>自动</option>
-                  <option value="portrait" {% if scene_type == "portrait" %}selected{% endif %}>人像</option>
-                  <option value="landscape" {% if scene_type == "landscape" %}selected{% endif %}>风光</option>
-                  <option value="city" {% if scene_type == "city" %}selected{% endif %}>城市/建筑</option>
-                  <option value="night" {% if scene_type == "night" %}selected{% endif %}>夜景</option>
-                  <option value="indoor" {% if scene_type == "indoor" %}selected{% endif %}>室内</option>
+                  <option value="auto" selected>自动</option>
+                  <option value="portrait">人像</option>
+                  <option value="landscape">风光</option>
+                  <option value="city">城市/建筑</option>
+                  <option value="night">夜景</option>
+                  <option value="indoor">室内</option>
                 </select>
                 <p class="field-hint">人像会保护肤色，风光会增强色彩分离。</p>
               </div>
@@ -127,8 +128,11 @@
                 <span class="icon">🎨</span>
                 <h2>风格参考库 (Rec.709 / SDR)</h2>
               </div>
+              <button id="continue-button" class="link-button hidden" type="button">
+                <span class="link-icon">➕</span>继续生成 (3个)
+              </button>
               <button id="regenerate-button" class="link-button hidden" type="button">
-                <span class="link-icon">⟳</span>重新创作
+                <span class="link-icon">⟳</span>全部重试
               </button>
             </div>
 
@@ -155,7 +159,7 @@
       <footer class="container footer">
         <p>核心算法: OKLAB 感知均匀匹配 | 直方图分布映射 | 65阶精度</p>
         {% if icp_record %}
-          <a class="icp-record" href="https://beian.miit.gov.cn" target="_blank" rel="noopener">
+          <a class="icp-record" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">
             {{ icp_record }}
           </a>
         {% endif %}

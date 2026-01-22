@@ -1,43 +1,101 @@
 const STYLE_PRESETS = [
+  // --- Landscape ---
   {
     id: "blue_gold",
     name: "蓝金色调",
-    description: "主色蓝、辅色金黄/橙黄，冷天暖光，通透壮阔，适合日出日落、云海、雪山。"
+    description: "风光主流。主色蓝、辅色金黄，冷天暖光，通透壮阔，适合日出日落。",
+    category: "landscape"
   },
   {
     id: "teal_orange",
     name: "青橙色调",
-    description: "主色青、辅色橙，冷暖强对冲，戏剧化冲击，适合大场景与强光向。"
+    description: "电影感。主色青、辅色橙，冷暖强对冲，戏剧化冲击，适合大场景。",
+    category: "landscape"
   },
   {
     id: "blue_cyan",
     name: "蓝青冷色调",
-    description: "整体偏冷，极简克制，冷静空旷，适合雪山、极地、清晨或暴风雨。"
+    description: "极简克制。整体偏冷，孤独冷静，适合雪山、极地、清晨。",
+    category: "landscape"
   },
   {
     id: "warm_golden",
     name: "暖橙金色调",
-    description: "暖色主导，少量蓝青平衡，温暖厚重，适合秋季森林、沙漠、丹霞。"
+    description: "暖色主导。温暖厚重，适合秋季森林、沙漠、丹霞。",
+    category: "landscape"
   },
   {
     id: "blue_green",
     name: "蓝绿色调",
-    description: "蓝绿主导，少量黄点缀，清新自然，适合草原、湖泊、夏季山地。"
+    description: "自然生态。蓝绿主导，清新自然，适合草原、湖泊、夏季山地。",
+    category: "landscape"
   },
   {
     id: "muted_nordic",
     name: "灰蓝低饱和",
-    description: "灰蓝/灰青低饱和，安静克制，高级感，适合阴天、雾景、北欧风光。"
+    description: "高级感。灰蓝/灰青，安静克制，适合阴天、雾景、北欧风光。",
+    category: "landscape"
   },
   {
     id: "monotone",
     name: "单色倾向",
-    description: "单一色相主导，极简强情绪，适合雾、雪、剪影等极简场景。"
+    description: "色彩极简。单一色相主导，强情绪，适合雾、雪、剪影。",
+    category: "landscape"
   },
   {
     id: "black_white",
-    name: "黑白/准黑白",
-    description: "以明暗结构为主，强调纹理与力量，适合高反差地形与强纹理。"
+    name: "黑白风光",
+    description: "结构力量。脱离色彩，强调纹理，适合高反差地形。",
+    category: "landscape"
+  },
+  // --- Portrait ---
+  {
+    id: "teal_orange_portrait",
+    name: "青橙色调 (人像)",
+    description: "人像首选。青色背景+橙色皮肤，强对比立体感，适合商业、街拍。",
+    category: "portrait"
+  },
+  {
+    id: "warm_skin_cool_bg",
+    name: "暖肤冷背景",
+    description: "干净耐看。暖肤色+冷灰背景，青橙的自然版，适合肖像。",
+    category: "portrait"
+  },
+  {
+    id: "soft_warm_pastel",
+    name: "日系清透",
+    description: "温柔空气感。浅暖主色+低饱和绿蓝，适合日常、校园。",
+    category: "portrait"
+  },
+  {
+    id: "creamy_beige",
+    name: "奶油色调",
+    description: "高级轻奢。米白/奶油黄，柔和高级，适合棚拍、女性肖像。",
+    category: "portrait"
+  },
+  {
+    id: "cool_cinematic",
+    name: "冷灰电影",
+    description: "克制硬朗。冷灰/蓝灰+少量暖肤，适合男性、街头、剧情。",
+    category: "portrait"
+  },
+  {
+    id: "vintage_brown",
+    name: "暖棕复古",
+    description: "怀旧胶片。棕色/橙棕，弱对比，适合复古穿搭。",
+    category: "portrait"
+  },
+  {
+    id: "bw_contrast_portrait",
+    name: "高对比黑白",
+    description: "结构戏剧性。强调明暗力量，适合男性、纪实。",
+    category: "portrait"
+  },
+  {
+    id: "monotone_portrait",
+    name: "单色人像",
+    description: "实验情绪。单一色相，强风格化，适合概念人像。",
+    category: "portrait"
   }
 ];
 
@@ -46,7 +104,10 @@ const state = {
   dataUrl: "",
   results: [],
   analysis: "",
-  runId: ""
+  runId: "",
+  generatedStyleIds: new Set(),
+  availableStyles: [],
+  detectedCategory: null
 };
 
 const elements = {
@@ -63,6 +124,7 @@ const elements = {
   debugToggle: document.getElementById("debug-toggle"),
   generateButton: document.getElementById("generate-button"),
   regenerateButton: document.getElementById("regenerate-button"),
+  continueButton: document.getElementById("continue-button"),
   statusPanel: document.getElementById("status-panel"),
   statusText: document.getElementById("status-text"),
   analysisCard: document.getElementById("analysis-card"),
@@ -88,6 +150,11 @@ elements.fileInput.addEventListener("change", (event) => {
     elements.uploadArea.classList.add("has-image");
     elements.uploadPlaceholder.classList.add("hidden");
     clearResults();
+    // Reset state for new file
+    state.generatedStyleIds.clear();
+    state.availableStyles = [];
+    state.detectedCategory = null;
+    elements.continueButton.classList.add("hidden");
   };
   reader.readAsDataURL(file);
 });
@@ -101,6 +168,11 @@ elements.resetButton.addEventListener("click", () => {
   elements.resetButton.classList.add("hidden");
   elements.uploadPlaceholder.classList.remove("hidden");
   clearResults();
+  // Reset state
+  state.generatedStyleIds.clear();
+  state.availableStyles = [];
+  state.detectedCategory = null;
+  elements.continueButton.classList.add("hidden");
 });
 
 elements.copyAnalysisButton.addEventListener("click", async () => {
@@ -134,11 +206,15 @@ elements.copyAnalysisButton.addEventListener("click", async () => {
 });
 
 elements.generateButton.addEventListener("click", () => {
-  generateStyles();
+  startGeneration();
 });
 
 elements.regenerateButton.addEventListener("click", () => {
-  generateStyles();
+  startGeneration();
+});
+
+elements.continueButton.addEventListener("click", () => {
+  generateNextBatch();
 });
 
 function syncStyleStrength() {
@@ -395,13 +471,21 @@ async function streamAnalysis() {
   return analysis.trim();
 }
 
-async function generateStyles() {
+async function startGeneration() {
   if (!state.file) {
     showError("请先上传静帧。");
     return;
   }
   clearError();
   setStatus(true, "正在解析场景...");
+  
+  // Reset for fresh start
+  state.generatedStyleIds.clear();
+  state.results = [];
+  elements.results.className = "results";
+  elements.results.innerHTML = "";
+  elements.regenerateButton.classList.add("hidden");
+  elements.continueButton.classList.add("hidden");
 
   try {
     const analysis = await streamAnalysis();
@@ -410,35 +494,87 @@ async function generateStyles() {
       elements.analysisCard.classList.add("hidden");
     }
 
-    state.results = [];
-    elements.results.className = "results";
-    elements.results.innerHTML = "";
-
-    for (let index = 0; index < STYLE_PRESETS.length; index += 1) {
-      const style = STYLE_PRESETS[index];
-      setStatus(true, `正在生成调色参考 (${index + 1}/${STYLE_PRESETS.length})...`);
-      const { result, analysis: mergedAnalysis, runId } = await generateStyle(style, analysis);
-      if (!state.runId && runId) {
-        state.runId = runId;
+    // Determine category from analysis
+    state.detectedCategory = "landscape"; // Default
+    if (analysis) {
+      if (/SCENE_CATEGORY:\s*portrait/i.test(analysis)) {
+        state.detectedCategory = "portrait";
+      } else if (/SCENE_CATEGORY:\s*landscape/i.test(analysis)) {
+        state.detectedCategory = "landscape";
       }
-      state.analysis = mergedAnalysis;
-      state.results.push(result);
-      renderResults();
-      elements.regenerateButton.classList.remove("hidden");
     }
+
+    // Filter available styles based on category
+    state.availableStyles = STYLE_PRESETS.filter(style => style.category === state.detectedCategory);
 
     if (state.analysis) {
       elements.analysisText.textContent = state.analysis;
       elements.analysisCard.classList.remove("hidden");
     }
+    
+    // Start first batch
+    await generateNextBatch();
+
   } catch (error) {
     showError(error.message || "生成失败，请重试。");
     if (!state.results.length) {
       renderEmptyState();
     }
-  } finally {
     setStatus(false, "");
   }
 }
+
+async function generateNextBatch() {
+  const BATCH_SIZE = 3;
+  
+  // Filter out already generated styles
+  const remainingStyles = state.availableStyles.filter(style => !state.generatedStyleIds.has(style.id));
+  
+  if (remainingStyles.length === 0) {
+      setStatus(false, "");
+      elements.regenerateButton.classList.remove("hidden");
+      elements.continueButton.classList.add("hidden");
+      return;
+  }
+  
+  const batch = remainingStyles.slice(0, BATCH_SIZE);
+  
+  try {
+    for (let i = 0; i < batch.length; i++) {
+      const style = batch[i];
+      setStatus(true, `正在生成调色参考 (${i + 1}/${batch.length}): ${style.name}...`);
+      
+      const { result, analysis: mergedAnalysis, runId } = await generateStyle(style, state.analysis);
+      
+      if (!state.runId && runId) {
+        state.runId = runId;
+      }
+      state.analysis = mergedAnalysis;
+      
+      // Add result
+      state.results.push(result);
+      // Mark as generated
+      state.generatedStyleIds.add(style.id);
+      
+      renderResults();
+    }
+  } catch (error) {
+      showError(error.message || "生成中断，请重试。");
+  } finally {
+      setStatus(false, "");
+      
+      // Check if there are more styles available
+      const stillRemaining = state.availableStyles.filter(style => !state.generatedStyleIds.has(style.id));
+      if (stillRemaining.length > 0) {
+          elements.continueButton.classList.remove("hidden");
+      } else {
+          elements.continueButton.classList.add("hidden");
+      }
+      elements.regenerateButton.classList.remove("hidden");
+  }
+}
+
+// Legacy function removed/replaced by startGeneration + generateNextBatch
+// async function generateStyles() { ... }
 
 renderEmptyState();

@@ -64,7 +64,7 @@
               </form>
               {% if allow_register %}
                 <div class="auth-footer">
-                  还没有账号？<a class="link-button" href="{{ url_for('register') }}">立即注册</a>
+                  还没有账号？<a class="link-button" href="{{ url_for('auth.register') }}">立即注册</a>
                 </div>
               {% endif %}
             </div>
@@ -74,7 +74,7 @@
     </div>
     {% if icp_record %}
       <footer class="container footer">
-        <a class="icp-record" href="https://beian.miit.gov.cn" target="_blank" rel="noopener">
+        <a class="icp-record" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">
           {{ icp_record }}
         </a>
       </footer>

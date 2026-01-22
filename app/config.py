@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict
 
@@ -35,6 +36,55 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "qiniu_bucket": "",
     "qiniu_domain": "https://qn.3xx3x.cn",
 }
+
+DEFAULT_LUT_SPACE = "rec709_sdr"
+DEFAULT_SCENE_TYPE = "auto"
+DEFAULT_STYLE_STRENGTH = 0.7
+
+DB_SETTING_KEYS = (
+    "analysis_model",
+    "image_model",
+    "api_key",
+    "doubao_api_key",
+    "register_bonus_points",
+)
+POINTS_REASON_REGISTER = "register_bonus"
+POINTS_SOURCE_REGISTER = "register"
+POINTS_REASON_FILTER = "filter_use"
+POINTS_SOURCE_FILTER = "generate"
+POINTS_REASON_REFUND = "filter_refund"
+ICP_RECORD = "闽ICP备2025083568号-1"
+POINTS_REASON_LABELS = {
+    POINTS_REASON_REGISTER: "注册赠送",
+    POINTS_REASON_FILTER: "调色生成",
+    POINTS_REASON_REFUND: "生成失败返还",
+}
+POINTS_SOURCE_LABELS = {
+    POINTS_SOURCE_REGISTER: "注册",
+    POINTS_SOURCE_FILTER: "生成",
+}
+MIN_PASSWORD_LENGTH = 8
+MIN_USERNAME_LENGTH = 3
+MAX_USERNAME_LENGTH = 32
+
+
+@dataclass(frozen=True)
+class AppConfig:
+    image_path: Path
+    api_key: str
+    doubao_api_key: str
+    analysis_model: str
+    image_model: str
+    out_dir: Path
+    styles: str
+    no_lut: bool
+    sample_size: int
+    lut_size: int
+    lut_space: str
+    scene_type: str
+    style_strength: float
+    retries: int
+    debug_requests: bool
 
 
 def env_flag(name: str, default: str = "0") -> bool:

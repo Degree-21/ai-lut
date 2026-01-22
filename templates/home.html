@@ -1,0 +1,270 @@
+
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>调色灵感专家 - AI 电影级调色与 3D LUT 生成</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+    <style>
+      .home-page {
+        background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      .home-header {
+        padding: 24px 0;
+        border-bottom: 1px solid rgba(0,0,0,0.05);
+        background: rgba(255,255,255,0.8);
+        backdrop-filter: blur(10px);
+        position: sticky;
+        top: 0;
+        z-index: 100;
+      }
+      .home-nav {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .home-logo {
+        font-size: 24px;
+        font-weight: 800;
+        background: linear-gradient(90deg, #2563eb, #6366f1);
+        -webkit-background-clip: text;
+        color: transparent;
+        text-decoration: none;
+      }
+      .hero-section {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        padding: 80px 0;
+        position: relative;
+        overflow: hidden;
+      }
+      .hero-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 60px;
+        align-items: center;
+      }
+      .hero-content h1 {
+        font-size: 56px;
+        line-height: 1.1;
+        font-weight: 800;
+        margin-bottom: 24px;
+        color: #0f172a;
+        letter-spacing: -0.02em;
+      }
+      .hero-content h1 span {
+        background: linear-gradient(90deg, #4f46e5, #ec4899);
+        -webkit-background-clip: text;
+        color: transparent;
+      }
+      .hero-content p {
+        font-size: 20px;
+        color: #64748b;
+        margin-bottom: 40px;
+        line-height: 1.6;
+        max-width: 540px;
+      }
+      .hero-buttons {
+        display: flex;
+        gap: 16px;
+      }
+      .hero-btn {
+        padding: 16px 32px;
+        border-radius: 99px;
+        font-weight: 700;
+        font-size: 16px;
+        text-decoration: none;
+        transition: transform 0.2s, box-shadow 0.2s;
+      }
+      .btn-primary {
+        background: #4f46e5;
+        color: white;
+        box-shadow: 0 10px 25px rgba(79, 70, 229, 0.3);
+      }
+      .btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 15px 35px rgba(79, 70, 229, 0.4);
+      }
+      .btn-secondary {
+        background: white;
+        color: #475569;
+        border: 1px solid #e2e8f0;
+      }
+      .btn-secondary:hover {
+        background: #f8fafc;
+        color: #1e293b;
+      }
+      .hero-visual {
+        position: relative;
+      }
+      .hero-card {
+        background: white;
+        border-radius: 24px;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.15);
+        padding: 24px;
+        border: 1px solid rgba(255,255,255,0.5);
+        transform: rotate(-3deg);
+        transition: transform 0.5s ease;
+      }
+      .hero-card:hover {
+        transform: rotate(0deg) scale(1.02);
+      }
+      .hero-card img {
+        width: 100%;
+        border-radius: 16px;
+        display: block;
+      }
+      .feature-section {
+        padding: 80px 0;
+        background: #f8fafc;
+      }
+      .features-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 32px;
+      }
+      .feature-item {
+        background: white;
+        padding: 32px;
+        border-radius: 20px;
+        border: 1px solid #e2e8f0;
+        transition: transform 0.3s;
+      }
+      .feature-item:hover {
+        transform: translateY(-5px);
+        border-color: #cbd5e1;
+      }
+      .feature-icon {
+        width: 48px;
+        height: 48px;
+        background: #eef2ff;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 24px;
+        margin-bottom: 20px;
+        color: #4f46e5;
+      }
+      .feature-item h3 {
+        font-size: 20px;
+        font-weight: 700;
+        margin-bottom: 12px;
+        color: #1e293b;
+      }
+      .feature-item p {
+        color: #64748b;
+        line-height: 1.6;
+      }
+      .footer-simple {
+        padding: 40px 0;
+        text-align: center;
+        color: #94a3b8;
+        font-size: 14px;
+        border-top: 1px solid #e2e8f0;
+      }
+      
+      @media (max-width: 900px) {
+        .hero-grid {
+          grid-template-columns: 1fr;
+          text-align: center;
+          gap: 40px;
+        }
+        .hero-content p {
+          margin: 0 auto 32px;
+        }
+        .hero-buttons {
+          justify-content: center;
+        }
+        .features-grid {
+          grid-template-columns: 1fr;
+        }
+        .hero-content h1 {
+          font-size: 42px;
+        }
+      }
+    </style>
+  </head>
+  <body class="home-page">
+    <header class="home-header">
+      <div class="container home-nav">
+        <a href="/" class="home-logo">AI LUT Creator</a>
+        <div class="nav-links">
+          {% if current_user %}
+            <a href="{{ url_for('main.index') }}" class="hero-btn btn-primary" style="padding: 10px 20px; font-size: 14px;">进入控制台</a>
+          {% else %}
+            <a href="{{ url_for('auth.login') }}" class="link-button" style="margin-right: 16px; color: #64748b;">登录</a>
+            <a href="{{ url_for('auth.register') }}" class="hero-btn btn-primary" style="padding: 10px 20px; font-size: 14px;">免费注册</a>
+          {% endif %}
+        </div>
+      </div>
+    </header>
+
+    <section class="hero-section">
+      <div class="container">
+        <div class="hero-grid">
+          <div class="hero-content">
+            <div class="auth-badge" style="background: #e0e7ff; color: #4338ca; display: inline-block; margin-bottom: 24px;">AI 驱动色彩科学</div>
+            <h1>让每一帧画面<br>拥有<span>电影质感</span></h1>
+            <p>上传静帧，AI 自动分析光影结构，一键生成好莱坞级调色方案与 3D LUT 文件。无需专业调色经验，即可获得大师级色彩。</p>
+            <div class="hero-buttons">
+              <a href="{{ url_for('auth.register') }}" class="hero-btn btn-primary">立即开始创作</a>
+              <a href="#features" class="hero-btn btn-secondary">了解更多</a>
+            </div>
+          </div>
+          <div class="hero-visual">
+            <div class="hero-card">
+              <img src="https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?ixlib=rb-4.0.3&auto=format&fit=crop&w=1000&q=80" alt="Cinematic Color Grading Example">
+              <div style="padding-top: 16px; display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                  <h4 style="font-weight: 700; color: #1e293b;">Teal & Orange</h4>
+                  <p style="font-size: 12px; color: #64748b;">AI Scene Analysis • 3D LUT Generated</p>
+                </div>
+                <div style="background: #ecfdf5; color: #059669; padding: 4px 12px; border-radius: 99px; font-size: 12px; font-weight: 700;">Ready</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="features" class="feature-section">
+      <div class="container">
+        <div class="section-title" style="justify-content: center; margin-bottom: 60px; text-align: center;">
+          <h2 style="font-size: 32px; font-weight: 800;">为什么选择 AI LUT Creator?</h2>
+        </div>
+        <div class="features-grid">
+          <div class="feature-item">
+            <div class="feature-icon">🧠</div>
+            <h3>AI 深度场景解析</h3>
+            <p>超越传统滤镜。AI 智能识别画面中的人像、天空、建筑等元素，基于物理光影逻辑进行重构，确保调色自然真实，保留画面细节。</p>
+          </div>
+          <div class="feature-item">
+            <div class="feature-icon">🎨</div>
+            <h3>专业级色彩预设</h3>
+            <p>内置 16+ 款大师级调色风格，涵盖青橙电影、日系清透、黑白胶片等，满足商业、风光、人像全场景需求，激发无限创作灵感。</p>
+          </div>
+          <div class="feature-item">
+            <div class="feature-icon">⚡</div>
+            <h3>一键导出 3D LUT</h3>
+            <p>即时生成通用的 .cube 文件，无缝兼容 Premiere, DaVinci Resolve, FCPX, Photoshop 等所有主流创作软件，提升后期效率。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="footer-simple">
+      <div class="container">
+        <p>© 2026 调色灵感专家 (AI LUT Creator). All rights reserved.</p>
+        {% if icp_record %}
+          <a class="icp-record" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener" style="margin-top: 8px; display: inline-block;">{{ icp_record }}</a>
+        {% endif %}
+      </div>
+    </footer>
+  </body>
+</html>

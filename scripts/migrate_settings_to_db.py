@@ -7,8 +7,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from config import load_settings
-from user_store import init_db, upsert_settings
+from app.config import load_settings
+from app.models.db import init_db, upsert_settings
 
 
 DB_SETTING_KEYS = (

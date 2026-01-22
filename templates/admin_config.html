@@ -17,10 +17,10 @@
         {% if current_user %}
           <div class="header-actions">
             <span class="user-badge">你好，{{ current_user|e }}</span>
-            <a class="link-button" href="{{ url_for('points') }}">积分记录</a>
-            <a class="link-button" href="{{ url_for('history') }}">解析记录</a>
-            <a class="link-button" href="{{ url_for('index') }}">返回首页</a>
-            <a class="link-button" href="{{ url_for('logout') }}">退出</a>
+            <a class="link-button" href="{{ url_for('main.points') }}">积分记录</a>
+            <a class="link-button" href="{{ url_for('main.history') }}">解析记录</a>
+            <a class="link-button" href="{{ url_for('main.index') }}">返回首页</a>
+            <a class="link-button" href="{{ url_for('auth.logout') }}">退出</a>
           </div>
         {% endif %}
       </header>
