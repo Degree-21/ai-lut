@@ -2,8 +2,10 @@
 
 **AI-LUT** 是一个基于人工智能的色彩分级（Color Grading）辅助工具。它能够深度分析参考图像的色彩、光影和构图特征，并利用先进的生成式 AI 模型（如 Google Gemini、豆包）生成高精度的 3D LUT（查找表），帮助摄影师和调色师快速获得电影级的调色灵感。
 
-![应用截图](docs/screenshot_demo.png)
-*(请在此处添加应用运行截图，如 `docs/screenshot_demo.png`)*
+## 🖼️ 应用截图
+
+![首页](docs/index.png)
+![功能示意](docs/function.png)
 
 ## ✨ 主要功能
 
@@ -24,6 +26,27 @@
 - **AI 服务**：OpenAI SDK (用于兼容调用), Google Generative AI
 - **前端**：HTML5, CSS3, JavaScript (原生)
 
+## 🏗️ 基础架构
+
+核心流程：前端上传图片 -> Flask 路由 -> 业务服务 -> AI 分析/生成 -> 结果入库与输出文件。
+
+```
+Browser
+  |
+  v
+Flask (routes)
+  |
+  v
+Services (analysis / lut / user)
+  |           |             |
+  |           |             v
+  |           |          Qiniu (optional)
+  |           v
+  |        AI providers (Gemini / Doubao)
+  v
+MySQL
+```
+
 ## 🚀 快速开始
 
 ### 1. 环境准备
@@ -33,6 +56,26 @@
 ```bash
 conda create -n ai-lut python=3.11
 conda activate ai-lut
+```
+
+### 1.5 使用 Docker 启动 MySQL（可选）
+
+仓库内已提供 `docker-compose.yml`，可直接启动本地 MySQL：
+
+```bash
+docker compose up -d db
+```
+
+默认数据库与账号（见 `docker-compose.yml`）：
+- 数据库：`ai_lut`
+- 用户：`ai_lut`
+- 密码：`ai_lut_password`
+- Root 密码：`ai_lut_root`
+
+对应 `config.yaml` 示例（本地直连）：
+
+```yaml
+database_url: "mysql+aiomysql://ai_lut:ai_lut_password@127.0.0.1:3306/ai_lut"
 ```
 
 ### 2. 安装依赖
@@ -73,6 +116,9 @@ qiniu_secret_key: ""
 qiniu_bucket: ""
 qiniu_domain: ""
 ```
+
+> **提示**：未配置七牛时，系统会使用本地 `outputs/` 并通过 `/api/download/...` 提供文件访问。  
+> **注意**：若使用豆包模型（`analysis_model` 或 `image_model` 以 `doubao-` 开头），必须配置七牛以提供图片 URL 输入，否则请求会报错。
 
 ### 4. 数据库初始化
 
@@ -119,6 +165,12 @@ CLI_MODE=1 python main.py
 - `points_transactions`: 积分流水记录
 - `analysis_records`: 图片分析历史记录
 - `app_settings`: 系统动态配置
+
+## ❓ 常见问题
+
+**Q: 没有配置七牛是否可以正常使用？**  
+A: 可以。未配置七牛时，结果文件会落地到本地 `outputs/`，并通过 `/api/download/...` 访问。  
+**注意**：如果选择豆包模型（`analysis_model` 或 `image_model` 以 `doubao-` 开头），必须配置七牛用于图片 URL 输入，否则请求会报错。
 
 ## 🤝 贡献
 
