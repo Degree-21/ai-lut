@@ -409,8 +409,8 @@ def upsert_settings(database_url: str, settings: Dict[str, str]) -> None:
                 await cur.executemany(
                     """
                     INSERT INTO app_settings (name, value)
-                    VALUES (%s, %s)
-                    ON DUPLICATE KEY UPDATE value = VALUES(value)
+                    VALUES (%s, %s) AS new
+                    ON DUPLICATE KEY UPDATE value = new.value
                     """,
                     items,
                 )
@@ -619,9 +619,9 @@ def create_image_record(
             """
             INSERT INTO analysis_images
                 (user_id, run_id, style_id, image_filename, image_url)
-            VALUES (%s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s) AS new
             ON DUPLICATE KEY UPDATE
-                image_url = VALUES(image_url)
+                image_url = new.image_url
             """,
             (user_id, run_id, style_id, image_filename, image_url),
         )

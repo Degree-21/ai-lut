@@ -14,6 +14,7 @@
 
 ![首页](docs/index.png)
 ![功能示意](docs/function.png)
+![使用示例](docs/generate.png)
 
 ## ✨ 主要功能
 

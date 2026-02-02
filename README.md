@@ -16,6 +16,7 @@
 
 ![Home](docs/index.png)
 ![Feature Preview](docs/function.png)
+![Usage Example](docs/generate.png)
 
 ## ✨ Features
 
