@@ -1,34 +1,44 @@
-# 调色灵感专家 (AI-LUT)
+# AI-LUT — AI Color Grading & 3D LUT Generator
 
-**AI-LUT** 是一个基于人工智能的色彩分级（Color Grading）辅助工具。它能够深度分析参考图像的色彩、光影和构图特征，并利用先进的生成式 AI 模型（如 Google Gemini、豆包）生成高精度的 3D LUT（查找表），帮助摄影师和调色师快速获得电影级的调色灵感。
+**Language**: English | [中文](README.zh.md)
 
-## 🖼️ 应用截图
+**AI-LUT** is an AI-powered color grading and 3D LUT (.cube) generator for photography and video post-production. It analyzes reference images (color, light, composition) and uses generative AI (Gemini, Doubao) to produce high-precision LUTs, helping creators quickly achieve cinematic looks and reusable grading styles.
 
-![首页](docs/index.png)
-![功能示意](docs/function.png)
+**Keywords**: AI color grading, Color Grading, 3D LUT, LUT generator, cinematic look, Flask, MySQL, generative AI, Gemini, Doubao, photography, video post-production.
 
-## ✨ 主要功能
+**Use cases**:
+- cinematic look development and batch LUT generation for film/short video
+- fast style matching and color reference for photographers
+- reusable grading presets and version comparison for colorists
+- teaching/research on color analysis and style transfer
 
-- **AI 深度视觉分析**：自动识别画面的物理结构、光影逻辑、色温倾向及动态范围。
-- **智能 LUT 生成**：基于分析结果，生成匹配目标风格的 `.cube` 格式 3D LUT 文件。
-- **多模型支持**：支持 Google Gemini Pro/Flash 及字节跳动豆包（Doubao）模型。
-- **风格预设系统**：内置多种电影级调色风格（如胶片感、赛博朋克、日系小清新等）。
-- **用户积分系统**：完整的用户注册、登录及积分消耗机制。
-- **云存储集成**：支持七牛云存储，方便管理生成的结果文件。
-- **Web 可视化界面**：直观的 Web UI，支持实时预览和历史记录查看。
-- **CLI 命令行模式**：支持通过命令行进行批量处理。
+## 🖼️ Screenshots
 
-## 🛠️ 技术栈
+![Home](docs/index.png)
+![Feature Preview](docs/function.png)
 
-- **后端**：Python 3.11+, Flask
-- **数据处理**：NumPy, Pillow (PIL)
-- **数据库**：MySQL (aiomysql)
-- **AI 服务**：OpenAI SDK (用于兼容调用), Google Generative AI
-- **前端**：HTML5, CSS3, JavaScript (原生)
+## ✨ Features
 
-## 🏗️ 基础架构
+- **AI visual analysis**: detects structure, lighting, color temperature, and dynamic range.
+- **3D LUT generation**: outputs high-precision `.cube` LUT files.
+- **Multi-model support**: Google Gemini Pro/Flash and ByteDance Doubao.
+- **Style presets**: built-in cinematic looks (film, cyberpunk, Japanese fresh, etc.).
+- **User points system**: registration/login and points consumption.
+- **Cloud storage**: Qiniu integration for generated assets.
+- **Web UI**: preview, history, and configuration.
+- **CLI mode**: batch processing for advanced workflows.
 
-核心流程：前端上传图片 -> Flask 路由 -> 业务服务 -> AI 分析/生成 -> 结果入库与输出文件。
+## 🛠️ Tech Stack
+
+- **Backend**: Python 3.11+, Flask
+- **Image processing**: NumPy, Pillow (PIL)
+- **Database**: MySQL (aiomysql)
+- **AI services**: OpenAI SDK (compat), Google Generative AI
+- **Frontend**: HTML5, CSS3, Vanilla JS
+
+## 🏗️ Architecture
+
+Main flow: upload -> Flask routes -> services -> AI analysis/generation -> database + output files.
 
 ```
 Browser
@@ -47,135 +57,138 @@ Services (analysis / lut / user)
 MySQL
 ```
 
-## 🚀 快速开始
+## 🚀 Quick Start
 
-### 1. 环境准备
+### 1. Requirements
 
-确保已安装 Python 3.11+ 和 MySQL 数据库。推荐使用 Conda 管理环境：
+Install Python 3.11+ and MySQL. Recommended with Conda:
 
 ```bash
 conda create -n ai-lut python=3.11
 conda activate ai-lut
 ```
 
-### 1.5 使用 Docker 启动 MySQL（可选）
+### 1.5 Start MySQL with Docker (optional)
 
-仓库内已提供 `docker-compose.yml`，可直接启动本地 MySQL：
+A `docker-compose.yml` is provided. Start MySQL with:
 
 ```bash
 docker compose up -d db
 ```
 
-默认数据库与账号（见 `docker-compose.yml`）：
-- 数据库：`ai_lut`
-- 用户：`ai_lut`
-- 密码：`ai_lut_password`
-- Root 密码：`ai_lut_root`
+Default database/user (see `docker-compose.yml`):
+- DB: `ai_lut`
+- User: `ai_lut`
+- Password: `ai_lut_password`
+- Root password: `ai_lut_root`
 
-对应 `config.yaml` 示例（本地直连）：
+Example `config.yaml` (local connection):
 
 ```yaml
 database_url: "mysql+aiomysql://ai_lut:ai_lut_password@127.0.0.1:3306/ai_lut"
 ```
 
-### 2. 安装依赖
+### 2. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. 配置文件
+### 3. Configuration
 
-复制示例配置文件并修改：
+Copy the sample config and edit:
 
 ```bash
 cp config.example.yaml config.yaml
 ```
 
-编辑 `config.yaml`，填入以下关键信息：
+Edit `config.yaml` and fill key fields:
 
 ```yaml
-# 数据库连接 (必须)
+# Database (required)
 database_url: "mysql+aiomysql://username:password@localhost:3306/ai_lut_db"
 
-# 管理员账户 (初始化时自动创建)
+# Admin account (auto-created on startup)
 admin_username: "admin"
 admin_password: "your_secure_password"
 
-# AI 模型 API Key (二选一或全部配置)
-api_key: "YOUR_GEMINI_API_KEY"          # Google Gemini
-doubao_api_key: "YOUR_DOUBAO_API_KEY"   # 字节跳动豆包
+# AI API keys (one or both)
+api_key: "YOUR_GEMINI_API_KEY"
+doubao_api_key: "YOUR_DOUBAO_API_KEY"
 
-# 模型选择
-analysis_model: "gemini-1.5-flash"      # 用于图像分析
-image_model: "gemini-1.5-flash"         # 用于参考图生成
+# Models
+analysis_model: "gemini-1.5-flash"
+image_model: "gemini-1.5-flash"
 
-# 七牛云存储 (可选，用于云端存储生成结果)
+# Qiniu (optional)
 qiniu_access_key: ""
 qiniu_secret_key: ""
 qiniu_bucket: ""
 qiniu_domain: ""
 ```
 
-> **提示**：未配置七牛时，系统会使用本地 `outputs/` 并通过 `/api/download/...` 提供文件访问。  
-> **注意**：若使用豆包模型（`analysis_model` 或 `image_model` 以 `doubao-` 开头），必须配置七牛以提供图片 URL 输入，否则请求会报错。
+> **Note**: Without Qiniu, files are stored locally in `outputs/` and served via `/api/download/...`.
+> **Important**: If you use Doubao models (names start with `doubao-`), Qiniu is required to provide image URL input.
 
-### 4. 数据库初始化
+### 4. Database initialization
 
-首次运行时，系统会自动检查并初始化必要的数据库表结构。
-> **注意**：如果从旧版本升级（且表结构不兼容），请先备份并清理旧表。
+Tables are created automatically on first startup. No manual SQL is required.
+> **Note**: If upgrading from an old schema, back up and drop old tables before restarting.
 
-### 5. 启动服务
+### 5. Run
 
-#### Web 模式 (默认)
+#### Web mode (default)
 
 ```bash
 python main.py
 ```
-服务启动后，访问 `http://127.0.0.1:7860` 即可使用。
+Visit `http://127.0.0.1:7860`.
 
-#### CLI 模式 (命令行)
+#### CLI mode
 
 ```bash
 CLI_MODE=1 python main.py
 ```
-分析结果和 LUT 文件将默认输出到 `outputs/` 目录。
+Outputs (analysis/LUT) are written to `outputs/`.
 
-## 📂 项目结构
+## 📂 Project Structure
 
 ```
 .
 ├── app/
-│   ├── routes/         # 路由定义 (Web, API, Auth)
-│   ├── services/       # 核心业务逻辑 (AI, LUT, User)
-│   ├── models/         # 数据库模型
-│   └── utils/          # 工具函数
-├── static/             # 静态资源 (JS, CSS)
-├── templates/          # HTML 模板
-├── main.py             # 程序入口
-├── config.yaml         # 配置文件 (需手动创建)
-└── requirements.txt    # 项目依赖
+│   ├── routes/         # Web/API/Auth routes
+│   ├── services/       # Core logic (AI, LUT, User)
+│   ├── models/         # DB models
+│   └── utils/          # Utilities
+├── static/             # Static assets (JS, CSS)
+├── templates/          # HTML templates
+├── main.py             # Entry point
+├── config.yaml         # Local config (create manually)
+└── requirements.txt    # Dependencies
 ```
 
-## 📝 数据库表说明
+## 📝 Database Tables
 
-系统会自动创建以下表：
-- `users`: 用户账户信息
-- `user_points`: 用户积分余额
-- `points_transactions`: 积分流水记录
-- `analysis_records`: 图片分析历史记录
-- `app_settings`: 系统动态配置
+Tables are created automatically:
+- `users`: user accounts
+- `user_points`: point balances
+- `points_transactions`: point history
+- `analysis_records`: analysis history
+- `app_settings`: runtime config storage
 
-## ❓ 常见问题
+## ❓ FAQ
 
-**Q: 没有配置七牛是否可以正常使用？**  
-A: 可以。未配置七牛时，结果文件会落地到本地 `outputs/`，并通过 `/api/download/...` 访问。  
-**注意**：如果选择豆包模型（`analysis_model` 或 `image_model` 以 `doubao-` 开头），必须配置七牛用于图片 URL 输入，否则请求会报错。
+**Q: Can I run without Qiniu?**  
+A: Yes. Files are stored in local `outputs/` and served via `/api/download/...`.  
+**Important**: Doubao models require Qiniu for image URL input, otherwise requests will fail.
 
-## 🤝 贡献
+**Q: Do I need to import SQL or prefill `app_settings`?**  
+A: No. Tables are created on startup. `app_settings` is only populated when you save settings in the admin panel.
 
-欢迎提交 Issue 或 Pull Request 来改进项目！
+## 🤝 Contributing
 
-## 📄 许可证
+Issues and Pull Requests are welcome.
+
+## 📄 License
 
 [MIT License](LICENSE)
